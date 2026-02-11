@@ -1,8 +1,10 @@
 # Open a new Ghostty window in the current directory (uses existing instance if running)
-# Usage: ght
+# Usage: ght [command...]
 ght() {
   local dir
   dir=$(pwd)
+  local cmd="cd '${dir}'"
+  [[ $# -gt 0 ]] && cmd="${cmd} && $*"
   if pgrep -i ghostty >/dev/null 2>&1; then
     (osascript -e 'on run {thePath}' \
       -e 'tell application "Ghostty" to activate' \
