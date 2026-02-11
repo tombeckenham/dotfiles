@@ -87,17 +87,31 @@ eval "$(command pyenv init -)"
 pyenv install --skip-existing 3.12
 pyenv global 3.12
 
-# 10. Install global dev CLIs
+# 10. Bun
+if ! command -v bun &>/dev/null; then
+  echo "==> Installing Bun..."
+  curl -fsSL https://bun.com/install | bash
+  export BUN_INSTALL="$HOME/.bun"
+  export PATH="$BUN_INSTALL/bin:$PATH"
+fi
+
+# 11. Install global dev CLIs
 echo "==> Installing global dev CLIs..."
 bun install -g vercel wrangler
 
-# 11. Claude Code
+# 12. Claude Code
 if ! command -v claude &>/dev/null; then
   echo "==> Installing Claude Code..."
   curl -fsSL https://claude.ai/install.sh | bash
 fi
 
-# 12. GPG signing key check (only if a key was configured)
+# 13. OpenCode
+if ! command -v opencode &>/dev/null; then
+  echo "==> Installing OpenCode..."
+  curl -fsSL https://opencode.ai/install | bash
+fi
+
+# 14. GPG signing key check (only if a key was configured)
 gpg_key_id=$(git config --global user.signingkey 2>/dev/null || true)
 if [[ -n "$gpg_key_id" ]] && ! gpg --list-secret-keys "$gpg_key_id" &>/dev/null; then
   echo ""
@@ -106,10 +120,10 @@ if [[ -n "$gpg_key_id" ]] && ! gpg --list-secret-keys "$gpg_key_id" &>/dev/null;
   echo "    On this machine:      gpg --import ~/gpg-key.bak && rm ~/gpg-key.bak"
 fi
 
-# 13. Install lefthook for pre-commit secret scanning
+# 15. Install lefthook for pre-commit secret scanning
 echo "==> Installing lefthook hooks..."
 (cd "$DOTFILES_DIR" && lefthook install)
 
-# 14. Done
+# 16. Done
 echo ""
 echo "==> Done! Open a new terminal to load the updated config."

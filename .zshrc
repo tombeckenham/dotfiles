@@ -1,11 +1,10 @@
 # Consolidated PATH (set once at start, removes duplicates)
 path=(
   $HOME/.opencode/bin
-  $HOME/.antigravity/antigravity/bin
   $HOME/.local/bin
   $HOME/.bun/bin
   /opt/homebrew/bin
-  /opt/homebrew/opt/llvm@19/bin
+
   $HOME/Library/pnpm
   $path
 )

@@ -2,7 +2,6 @@ tap "dopplerhq/cli"
 
 # CLI tools
 brew "starship"
-brew "bun"
 brew "fnm"
 brew "pnpm"
 brew "pyenv"
