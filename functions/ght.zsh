@@ -6,14 +6,14 @@ ght() {
   local cmd="cd '${dir}'"
   [[ $# -gt 0 ]] && cmd="${cmd} && $*"
   if pgrep -i ghostty >/dev/null 2>&1; then
-    (osascript -e 'on run {thePath}' \
+    (osascript -e 'on run {theCmd}' \
       -e 'tell application "Ghostty" to activate' \
       -e 'delay 0.5' \
       -e 'tell application "System Events" to keystroke "n" using command down' \
       -e 'delay 0.8' \
-      -e 'tell application "System Events" to keystroke "cd " & (quoted form of thePath)' \
+      -e 'tell application "System Events" to keystroke theCmd' \
       -e 'tell application "System Events" to key code 36' \
-      -e 'end run' -- "$dir" &)
+      -e 'end run' -- "$cmd" &)
   else
     open -a Ghostty --args --working-directory="$dir"
   fi

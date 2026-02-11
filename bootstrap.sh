@@ -55,10 +55,20 @@ elif ! gh auth status 2>&1 | grep -q "'write:gpg_key'"; then
   echo "==> Refreshing GitHub token for required scopes..."
   gh auth refresh -s user,write:gpg_key
 fi
-gh auth setup-git
 
-# 8. Git identity + GPG signing key (per-machine, not tracked)
-if [[ ! -f "$HOME/.gitconfig.local" ]]; then
+# 8. Git config
+echo "==> Configuring git..."
+
+# Base config (idempotent, always applied)
+git config --global filter.lfs.clean "git-lfs clean -- %f"
+git config --global filter.lfs.smudge "git-lfs smudge -- %f"
+git config --global filter.lfs.process "git-lfs filter-process"
+git config --global filter.lfs.required true
+git config --global commit.gpgsign true
+git config --global tag.gpgSign true
+gh auth setup-git
+# Identity (only if not already set)
+if [[ -z "$(git config --global user.name 2>/dev/null)" || -z "$(git config --global user.email 2>/dev/null)" ]]; then
   echo ""
   echo "==> Setting up git identity..."
 
@@ -162,22 +172,15 @@ if [[ ! -f "$HOME/.gitconfig.local" ]]; then
       ;;
   esac
 
-  {
-    echo "[user]"
-    echo "	name = $git_name"
-    echo "	email = $git_email"
-    if [[ -n "$gpg_key" ]]; then
-      echo "	signingkey = $gpg_key"
-    fi
-    if [[ -z "$gpg_key" ]]; then
-      echo "[commit]"
-      echo "	gpgsign = false"
-      echo "[tag]"
-      echo "	gpgSign = false"
-    fi
-  } > "$HOME/.gitconfig.local"
-
-  echo "    Written to ~/.gitconfig.local"
+  git config --global user.name "$git_name"
+  git config --global user.email "$git_email"
+  if [[ -n "$gpg_key" ]]; then
+    git config --global user.signingkey "$gpg_key"
+  else
+    git config --global commit.gpgsign false
+    git config --global tag.gpgSign false
+  fi
+  echo "    Git identity configured."
 fi
 
 # 9. Install language runtimes

@@ -1,4 +1,3 @@
-.gitconfig.local
 *.bak
 *.key
 .env*
