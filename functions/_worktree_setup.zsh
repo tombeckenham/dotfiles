@@ -6,7 +6,7 @@ _worktree_setup() {
     while IFS= read -r cmd; do
       cmd="${cmd//\$ROOT_WORKTREE_PATH/$repo_root}"
       (cd "$worktree_path" && eval "$cmd")
-    done < <(jq -r '.setup-worktree[]?' "$repo_root/.cursor/worktrees.json")
+    done < <(jq -r '."setup-worktree"[]?' "$repo_root/.cursor/worktrees.json")
   else
     [[ -f "$repo_root/.env.local" ]] && cp "$repo_root/.env.local" "$worktree_path/.env.local"
     [[ -f "$repo_root/local.db" ]] && cp "$repo_root/local.db" "$worktree_path/local.db"

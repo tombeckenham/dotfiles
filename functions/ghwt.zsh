@@ -70,9 +70,11 @@ ghwt() {
   # Ensure worktrees directory exists
   mkdir -p ~/.claude/worktrees
 
-  # Get repo name for worktree folder
+  # Resolve main repo root (works from both main checkout and linked worktrees)
+  local repo_root
+  repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
   local repo_name
-  repo_name=$(basename "$(git rev-parse --show-toplevel)")
+  repo_name=$(basename "$repo_root")
   local worktree_path="$HOME/.claude/worktrees/${repo_name}-${issue_number}"
 
   # Create the worktree
@@ -81,8 +83,6 @@ ghwt() {
   echo "Worktree created at: $worktree_path"
 
   # Run worktree setup
-  local repo_root
-  repo_root=$(git rev-parse --show-toplevel)
   _worktree_setup "$worktree_path" "$repo_root"
 
   # Open Cursor and arrange Left & Right (Cursor left, Ghostty right)
