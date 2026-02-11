@@ -46,7 +46,15 @@ symlink "$DOTFILES_DIR/gpg.conf"         "$HOME/.gnupg/gpg.conf"
 symlink "$DOTFILES_DIR/gpg-agent.conf"   "$HOME/.gnupg/gpg-agent.conf"
 symlink "$DOTFILES_DIR/functions"        "$HOME/.zsh_functions"
 
-# 7. Git identity (per-machine, not tracked)
+# 7. GitHub CLI authentication
+if ! gh auth status &>/dev/null; then
+  echo ""
+  echo "==> Authenticating with GitHub CLI..."
+  echo "    This will open a browser for OAuth authentication."
+  gh auth login --hostname github.com --git-protocol https --web
+fi
+
+# 8. Git identity (per-machine, not tracked)
 if [[ ! -f "$HOME/.gitconfig.local" ]]; then
   echo ""
   echo "==> Setting up git identity..."
@@ -71,7 +79,7 @@ if [[ ! -f "$HOME/.gitconfig.local" ]]; then
   echo "    Written to ~/.gitconfig.local"
 fi
 
-# 8. Install language runtimes
+# 9. Install language runtimes
 echo "==> Installing language runtimes..."
 eval "$(fnm env)"
 fnm install --lts
@@ -79,7 +87,17 @@ eval "$(command pyenv init -)"
 pyenv install --skip-existing 3.12
 pyenv global 3.12
 
-# 9. GPG signing key check (only if a key was configured)
+# 10. Install global dev CLIs
+echo "==> Installing global dev CLIs..."
+bun install -g vercel wrangler
+
+# 11. Claude Code
+if ! command -v claude &>/dev/null; then
+  echo "==> Installing Claude Code..."
+  curl -fsSL https://claude.ai/install.sh | bash
+fi
+
+# 12. GPG signing key check (only if a key was configured)
 gpg_key_id=$(git config --global user.signingkey 2>/dev/null || true)
 if [[ -n "$gpg_key_id" ]] && ! gpg --list-secret-keys "$gpg_key_id" &>/dev/null; then
   echo ""
@@ -88,10 +106,10 @@ if [[ -n "$gpg_key_id" ]] && ! gpg --list-secret-keys "$gpg_key_id" &>/dev/null;
   echo "    On this machine:      gpg --import ~/gpg-key.bak && rm ~/gpg-key.bak"
 fi
 
-# 10. Install lefthook for pre-commit secret scanning
+# 13. Install lefthook for pre-commit secret scanning
 echo "==> Installing lefthook hooks..."
 (cd "$DOTFILES_DIR" && lefthook install)
 
-# 11. Done
+# 14. Done
 echo ""
 echo "==> Done! Open a new terminal to load the updated config."

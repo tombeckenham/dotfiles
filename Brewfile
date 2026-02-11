@@ -1,3 +1,5 @@
+tap "dopplerhq/cli"
+
 # CLI tools
 brew "starship"
 brew "bun"
@@ -9,6 +11,7 @@ brew "jq"
 brew "gnupg"
 brew "lefthook"
 brew "pinentry-mac"
+brew "dopplerhq/cli/doppler"
 
 # GUI apps
 cask "ghostty"
