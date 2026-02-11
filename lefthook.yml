@@ -1,0 +1,8 @@
+pre-commit:
+  commands:
+    check-secrets:
+      run: |
+        if git diff --cached --diff-filter=ACM -z --name-only | xargs -0 grep -lE '(PRIVATE KEY|sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|-----BEGIN)' 2>/dev/null; then
+          echo "Potential secrets detected in staged files"
+          exit 1
+        fi

@@ -1,0 +1,15 @@
+# Essential Zsh improvements
+zsh-users/zsh-autosuggestions
+zsh-users/zsh-syntax-highlighting
+zsh-users/zsh-completions
+zsh-users/zsh-history-substring-search
+
+# Git workflow
+ohmyzsh/ohmyzsh path:plugins/git
+
+# Node.js/TypeScript development
+ohmyzsh/ohmyzsh path:plugins/node
+ohmyzsh/ohmyzsh path:plugins/npm
+
+# macOS integration
+ohmyzsh/ohmyzsh path:plugins/macos
