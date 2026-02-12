@@ -83,15 +83,12 @@ ghwt() {
   echo "Worktree created at: $worktree_path"
 
   # Run worktree setup
-  _worktree_setup "$worktree_path" "$repo_root"
-
-  # Open new Ghostty window in worktree and start claude
-  (cd "$worktree_path" && ght claude)
+  (_worktree_setup "$worktree_path" "$repo_root")
 
   # Open Cursor and tile left
   open -a "Cursor" "$worktree_path"
-  sleep 0.8
-  osascript -e 'tell application "Cursor" to activate' \
-    -e 'delay 0.2' \
-    -e 'tell application "System Events" to key code 123 using {control down, shift down, command down}'
+
+  # Open new Ghostty window in worktree and start claude
+  cd "$worktree_path" && ght claude
 }
+

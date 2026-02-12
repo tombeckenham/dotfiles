@@ -1,13 +1,27 @@
 # Remove a worktree created by ghwt
-# Usage: ghwtrm <issue-number>
+# Usage: ghwtrm [-i] <issue-number>
 ghwtrm() {
-  if [[ -z "$1" || "$1" == "-h" || "$1" == "--help" ]]; then
-    echo "Usage: ghwtrm <issue-number>"
+  if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    echo "Usage: ghwtrm [-i] <issue-number>"
     echo "  Remove a worktree created by ghwt for the given issue"
+    echo "  -i, --issue  Optional flag before issue number (e.g. ghwtrm -i 42)"
     return 0
   fi
 
-  local issue_number="$1"
+  local issue_number
+  if [[ "$1" == "-i" || "$1" == "--issue" ]]; then
+    issue_number="$2"
+    if [[ -z "$issue_number" ]]; then
+      echo "Error: -i requires an issue number"
+      return 1
+    fi
+  elif [[ -z "$1" ]]; then
+    echo "Usage: ghwtrm [-i] <issue-number>"
+    echo "  Remove a worktree created by ghwt for the given issue"
+    return 0
+  else
+    issue_number="$1"
+  fi
 
   if ! [[ "$issue_number" =~ ^[0-9]+$ ]]; then
     echo "Error: Issue number must be numeric"
