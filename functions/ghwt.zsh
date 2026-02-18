@@ -83,12 +83,12 @@ ghwt() {
   echo "Worktree created at: $worktree_path"
 
   # Run worktree setup
-  (_worktree_setup "$worktree_path" "$repo_root")
+  _worktree_setup "$worktree_path" "$repo_root"
 
   # Open Cursor and tile left
   open -a "Cursor" "$worktree_path"
 
-  # Open new Ghostty window in worktree and start claude
-  cd "$worktree_path" && ght claude
+  # Start claude in the worktree
+  cd "$worktree_path" && claude --permission-mode plan "Implement GitHub issue #${issue_number}. Run gh issue view ${issue_number} for details."
 }
 
