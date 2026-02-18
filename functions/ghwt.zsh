@@ -88,6 +88,9 @@ ghwt() {
   # Open Cursor and tile left
   open -a "Cursor" "$worktree_path"
 
+  # Split-tile: show PICK ME banner and tile Cursor left
+  splt
+
   # Start claude in the worktree
   cd "$worktree_path" && claude --permission-mode plan "Implement GitHub issue #${issue_number}. Run gh issue view ${issue_number} for details."
 }
