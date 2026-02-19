@@ -91,7 +91,7 @@ ghwt() {
   echo "Worktree created at: $worktree_path"
 
   # Run worktree setup
-  _worktree_setup "$worktree_path" "$repo_root"
+  _worktree_setup "$worktree_path"
 
   # Open Cursor and tile left
   open -a "Cursor" "$worktree_path"

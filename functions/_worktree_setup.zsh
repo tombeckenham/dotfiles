@@ -1,6 +1,7 @@
 # Shared worktree setup helper — used by ghwt and wt
 _worktree_setup() {
-  local worktree_path="$1" repo_root="$2"
+  local worktree_path="$1"
+  local repo_root=$(dirname "$(git -C "$worktree_path" rev-parse --path-format=absolute --git-common-dir)")
   if [[ -f "$repo_root/.cursor/worktrees.json" ]]; then
     echo "Running worktree setup from .cursor/worktrees.json..."
     local cmd exit_code failed=0

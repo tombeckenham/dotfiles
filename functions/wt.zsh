@@ -53,9 +53,7 @@ wt() {
     echo "Worktree created at: $worktree_path"
 
     # Run worktree setup
-    local repo_root
-    repo_root=$(git rev-parse --show-toplevel)
-    _worktree_setup "$worktree_path" "$repo_root"
+    _worktree_setup "$worktree_path"
   fi
 
   # Open Cursor and arrange Left & Right (Cursor left, Ghostty right)
