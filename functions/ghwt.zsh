@@ -1,5 +1,6 @@
 # Create a GitHub issue (or develop an existing one) and set up a worktree
 # Usage: ghwt [-c] [-b <branch>] [-i <number>] "Issue title"
+# Automatically detects forks and routes issues to the upstream repo.
 ghwt() {
   local base_branch="" issue_number="" branch_name=""
 
@@ -24,6 +25,8 @@ ghwt() {
         echo "  -c, --current   Branch from current branch instead of main"
         echo "  -i, --issue N   Develop an existing issue instead of creating one"
         echo "  -h, --help      Show this help"
+        echo ""
+        echo "Automatically detects forks and creates issues on the upstream repo."
         return 0
         ;;
       *)
@@ -34,6 +37,15 @@ ghwt() {
     esac
   done
 
+  # Detect if this repo is a fork
+  local is_fork=false upstream_repo="" fork_repo=""
+  upstream_repo=$(gh repo view --json parent -q '.parent.owner.login + "/" + .parent.name' 2>/dev/null)
+  if [[ -n "$upstream_repo" && "$upstream_repo" != "null/null" && "$upstream_repo" != "/" ]]; then
+    is_fork=true
+    fork_repo=$(gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null)
+    echo "Detected fork of $upstream_repo"
+  fi
+
   # If no existing issue, create one from title
   if [[ -z "$issue_number" ]]; then
     local title="$1"
@@ -43,7 +55,11 @@ ghwt() {
     fi
 
     local issue_url
-    issue_url=$(gh issue create --title "$title" --body "" 2>&1)
+    if $is_fork; then
+      issue_url=$(gh issue create -R "$upstream_repo" --title "$title" --body "" 2>&1)
+    else
+      issue_url=$(gh issue create --title "$title" --body "" 2>&1)
+    fi
     if [[ $? -ne 0 ]]; then
       echo "Failed to create issue: $issue_url"
       return 1
@@ -59,7 +75,11 @@ ghwt() {
     # Use gh issue develop to create a branch
     local develop_output base_arg=""
     [[ -n "$base_branch" ]] && base_arg="--base $base_branch"
-    develop_output=$(gh issue develop "$issue_number" $base_arg 2>&1)
+    if $is_fork; then
+      develop_output=$(gh issue develop "$issue_number" -R "$upstream_repo" --branch-repo "$fork_repo" $base_arg 2>&1)
+    else
+      develop_output=$(gh issue develop "$issue_number" $base_arg 2>&1)
+    fi
     if [[ $? -ne 0 ]]; then
       echo "Failed to create branch: $develop_output"
       return 1
@@ -94,12 +114,14 @@ ghwt() {
   _worktree_setup "$worktree_path"
 
   # Open Cursor and tile left
-  open -a "Cursor" "$worktree_path"
+  cursor --new-window "$worktree_path"
 
   # Split-tile: show PICK ME banner and tile Cursor left
   splt
 
   # Start claude in the worktree
-  cd "$worktree_path" && claude --permission-mode plan "Implement GitHub issue #${issue_number}. Run gh issue view ${issue_number} for details."
+  local issue_view_cmd="gh issue view ${issue_number}"
+  $is_fork && issue_view_cmd="gh issue view ${issue_number} -R ${upstream_repo}"
+  cd "$worktree_path" && claude --permission-mode plan "Implement GitHub issue #${issue_number}. Run ${issue_view_cmd} for details."
 }
 
