@@ -74,7 +74,7 @@ splt() {
     -e '      end try' \
     -e '    end try' \
     -e '  end tell' \
-    -e 'end tell'
+    -e 'end tell' > /dev/null 2>&1
 
   # Wait for user to continue
   printf '\n%sPress enter to continue...%s' "$yel" "$rst"
