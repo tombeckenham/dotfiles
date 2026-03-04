@@ -215,10 +215,10 @@ if ! command -v opencode &>/dev/null; then
   curl -fsSL https://opencode.ai/install | bash
 fi
 
-# 14. Install lefthook for pre-commit secret scanning
+# 15. Install lefthook for pre-commit secret scanning
 echo "==> Installing lefthook hooks..."
 (cd "$DOTFILES_DIR" && lefthook install)
 
-# 15. Done
+# 16. Done
 echo ""
 echo "==> Done! Open a new terminal to load the updated config."
