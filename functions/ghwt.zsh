@@ -47,6 +47,9 @@ ghwt() {
     echo "Detected fork of $upstream_repo"
   fi
 
+  # Fetch latest remote refs before branching
+  git fetch origin 2>/dev/null
+
   # If no existing issue, create one from title
   if [[ -z "$issue_number" ]]; then
     local title="$1"
@@ -88,7 +91,6 @@ ghwt() {
       local default_branch
       default_branch=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null)
       local base="${base_branch:-${default_branch:-main}}"
-      git fetch origin "$base" 2>/dev/null
       git branch "$branch_name" "origin/$base"
       git push -u origin "$branch_name"
       echo "Created branch: $branch_name"
@@ -105,11 +107,9 @@ ghwt() {
       # Extract branch name from the URL line (format: "github.com/owner/repo/tree/branch-name")
       branch_name=$(echo "$develop_output" | grep '/tree/' | head -1 | grep -oE '[^/]+$')
       echo "Created branch: $branch_name"
-      git fetch origin "$branch_name"
     fi
   else
     echo "Using existing branch: $branch_name"
-    git fetch origin "$branch_name" 2>/dev/null
   fi
 
   # Ensure worktrees directory exists
