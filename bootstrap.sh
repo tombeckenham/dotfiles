@@ -215,10 +215,16 @@ if ! command -v opencode &>/dev/null; then
   curl -fsSL https://opencode.ai/install | bash
 fi
 
-# 15. Install lefthook for pre-commit secret scanning
+# 15. Power management (always-on server mode)
+echo "==> Configuring power management..."
+sudo pmset -a sleep 0 disksleep 0
+sudo pmset -a displaysleep 5
+sudo pmset -a autorestart 1
+
+# 16. Install lefthook for pre-commit secret scanning
 echo "==> Installing lefthook hooks..."
 (cd "$DOTFILES_DIR" && lefthook install)
 
-# 16. Done
+# 17. Done
 echo ""
 echo "==> Done! Open a new terminal to load the updated config."
