@@ -130,15 +130,23 @@ ghwt() {
   # Run worktree setup
   _worktree_setup "$worktree_path"
 
+  # Build the claude command
+  local issue_view_cmd="gh issue view ${issue_number}"
+  $is_fork && issue_view_cmd="gh issue view ${issue_number} -R ${upstream_repo}"
+  local claude_cmd="claude --permission-mode plan \"Implement GitHub issue #${issue_number}. Run ${issue_view_cmd} for details.\""
+
   # Open Cursor and tile left
   cursor --new-window "$worktree_path"
 
-  # Split-tile: show PICK ME banner and tile Cursor left
+  # Show PICK ME banner and tile Cursor left
   splt
 
-  # Start claude in the worktree
-  local issue_view_cmd="gh issue view ${issue_number}"
-  $is_fork && issue_view_cmd="gh issue view ${issue_number} -R ${upstream_repo}"
-  cd "$worktree_path" && claude --permission-mode plan "Implement GitHub issue #${issue_number}. Run ${issue_view_cmd} for details."
+  if [[ -n "${TMUX:-}" ]]; then
+    # Tmux: launch Claude in a new tmux window (persistent/reattachable)
+    tmux new-window -n "claude-${issue_number}" -c "$worktree_path" "$claude_cmd"
+  else
+    # No tmux: run Claude in current terminal
+    cd "$worktree_path" && eval "$claude_cmd"
+  fi
 }
 

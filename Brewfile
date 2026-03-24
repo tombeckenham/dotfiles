@@ -9,6 +9,7 @@ brew "gh"
 brew "jq"
 brew "gnupg"
 brew "lefthook"
+brew "tmux"
 brew "pinentry-mac"
 brew "dopplerhq/cli/doppler"
 
