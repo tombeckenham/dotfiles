@@ -60,10 +60,7 @@ fi
 echo "==> Configuring git..."
 
 # Base config (idempotent, always applied)
-git config --global filter.lfs.clean "git-lfs clean -- %f"
-git config --global filter.lfs.smudge "git-lfs smudge -- %f"
-git config --global filter.lfs.process "git-lfs filter-process"
-git config --global filter.lfs.required true
+git lfs install --skip-repo
 git config --global commit.gpgsign true
 git config --global tag.gpgSign true
 gh auth setup-git
