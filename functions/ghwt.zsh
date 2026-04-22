@@ -76,6 +76,50 @@ ghwt() {
   fi
 
   if [[ -z "$branch_name" ]]; then
+    # Check for any branches already associated with this issue (e.g. from another machine).
+    # Both our fork flow and `gh issue develop` name branches "<issue_number>-<slug>".
+    local -a existing_branches
+    existing_branches=("${(@f)$(git ls-remote --heads origin 2>/dev/null \
+      | grep -E "refs/heads/${issue_number}-[a-z0-9-]+$" \
+      | sed 's#.*refs/heads/##')}")
+    # (@f) on empty input yields a single empty element — strip it
+    [[ ${#existing_branches[@]} -eq 1 && -z "${existing_branches[1]}" ]] && existing_branches=()
+
+    local chosen=""
+    if [[ ${#existing_branches[@]} -eq 1 ]]; then
+      printf "Found existing branch for issue: %s\nUse it? [Y/n] " "${existing_branches[1]}"
+      local reply
+      read -r reply
+      if [[ -z "$reply" || "$reply" == [Yy]* ]]; then
+        chosen="${existing_branches[1]}"
+      else
+        echo "Ignoring existing branch."
+      fi
+    elif [[ ${#existing_branches[@]} -gt 1 ]]; then
+      echo "Found multiple branches for issue #${issue_number}:"
+      local i=1
+      for b in "${existing_branches[@]}"; do
+        echo "  [$i] $b"
+        i=$((i+1))
+      done
+      printf "Select branch [1-%d, or n to create new]: " "${#existing_branches[@]}"
+      local reply
+      read -r reply
+      if [[ "$reply" == <-> ]] && (( reply >= 1 && reply <= ${#existing_branches[@]} )); then
+        chosen="${existing_branches[$reply]}"
+      else
+        echo "Ignoring existing branches."
+      fi
+    fi
+
+    if [[ -n "$chosen" ]]; then
+      branch_name="$chosen"
+      # Ensure the branch is available locally for the worktree
+      git fetch origin "$branch_name" 2>/dev/null
+    fi
+  fi
+
+  if [[ -z "$branch_name" ]]; then
     if $is_fork; then
       # For forks, create branch manually (gh issue develop requires write access to upstream)
       local issue_title
