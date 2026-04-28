@@ -37,10 +37,10 @@ ghwtpr() {
   fi
 
   # Fetch PR metadata to determine branch naming
-  local pr_view_args=""
-  $is_fork && pr_view_args="-R $upstream_repo"
+  local -a pr_view_args=()
+  $is_fork && pr_view_args=(-R "$upstream_repo")
   local pr_data
-  pr_data=$(gh pr view $pr_view_args "$pr_number" --json headRefName,isCrossRepository 2>&1)
+  pr_data=$(gh pr view "${pr_view_args[@]}" "$pr_number" --json headRefName,isCrossRepository 2>&1)
   if [[ $? -ne 0 ]]; then
     echo "Failed to fetch PR info: $pr_data"
     return 1

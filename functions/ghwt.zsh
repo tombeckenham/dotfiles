@@ -1,8 +1,9 @@
 # Create a GitHub issue (or develop an existing one) and set up a worktree
-# Usage: ghwt [-c] [-b <branch>] [-i <number>] "Issue title"
-# Automatically detects forks and routes issues to the upstream repo.
+# Usage: ghwt [-c] [-f] [-b <branch>] [-i <number>] "Issue title"
+# Automatically detects forks and routes issues to the upstream repo by default;
+# pass -f/--fork to target the fork's own issue tracker instead.
 ghwt() {
-  local base_branch="" issue_number="" branch_name=""
+  local base_branch="" issue_number="" branch_name="" target_fork=false
 
   # Parse flags
   while [[ "$1" == -* ]]; do
@@ -19,19 +20,25 @@ ghwt() {
         issue_number="$2"
         shift 2
         ;;
+      -f|--fork)
+        target_fork=true
+        shift
+        ;;
       -h|--help)
-        echo "Usage: ghwt [-c] [-b <branch>] [-i <number>] \"Issue title\""
+        echo "Usage: ghwt [-c] [-f] [-b <branch>] [-i <number>] \"Issue title\""
         echo "  -b, --branch B  Use existing branch instead of creating one"
         echo "  -c, --current   Branch from current branch instead of main"
+        echo "  -f, --fork      Target the fork's own issues instead of upstream"
         echo "  -i, --issue N   Develop an existing issue instead of creating one"
         echo "  -h, --help      Show this help"
         echo ""
-        echo "Automatically detects forks and creates issues on the upstream repo."
+        echo "Automatically detects forks and creates issues on the upstream repo,"
+        echo "unless -f/--fork is passed (then issues live on the fork itself)."
         return 0
         ;;
       *)
         echo "Unknown option: $1"
-        echo "Usage: ghwt [-c] [-b <branch>] [-i <number>] \"Issue title\""
+        echo "Usage: ghwt [-c] [-f] [-b <branch>] [-i <number>] \"Issue title\""
         return 1
         ;;
     esac
@@ -44,10 +51,55 @@ ghwt() {
   upstream_repo=$(gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null)
   if [[ -n "$fork_repo" && -n "$upstream_repo" && "$fork_repo" != "$upstream_repo" ]]; then
     is_fork=true
-    echo "Detected fork of $upstream_repo"
   fi
 
-  # Fetch latest remote refs before branching
+  # Pick the repo where issues live. Default: upstream when fork detected,
+  # otherwise the current repo. With -f/--fork, force the fork itself.
+  local issue_repo="$upstream_repo"
+  if $target_fork; then
+    if $is_fork; then
+      issue_repo="$fork_repo"
+    else
+      echo "Note: -f/--fork passed but this repo is not a fork; ignoring."
+    fi
+  fi
+
+  if $is_fork; then
+    echo "Detected fork of $upstream_repo; issues → $issue_repo"
+  fi
+
+  # Resolve the upstream default branch (gh resolves forks to parent, so this
+  # returns the upstream default even when we're in a fork checkout).
+  local default_branch
+  default_branch=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null)
+  default_branch="${default_branch:-main}"
+
+  # Pick the authoritative source for the default branch.
+  local sync_source="origin"
+  if $is_fork; then
+    if git remote get-url upstream >/dev/null 2>&1; then
+      sync_source="upstream"
+    else
+      sync_source="https://github.com/${upstream_repo}.git"
+    fi
+  fi
+
+  # Sync the local default branch before branching off it.
+  echo "Syncing $default_branch from $sync_source..."
+  local current_branch
+  current_branch=$(git branch --show-current 2>/dev/null)
+  if [[ "$current_branch" == "$default_branch" ]]; then
+    git pull --ff-only "$sync_source" "$default_branch" 2>/dev/null \
+      || echo "  (local $default_branch not fast-forwardable; continuing)"
+  else
+    # Refspec form updates the local branch without checkout. Fails if the branch
+    # is checked out in another worktree — fall back to a plain fetch in that case
+    # since the remote-tracking ref is all we need to branch from.
+    git fetch "$sync_source" "${default_branch}:${default_branch}" 2>/dev/null \
+      || git fetch "$sync_source" "$default_branch" 2>/dev/null
+  fi
+
+  # Always refresh origin's tracking refs too (for branch listings etc.)
   git fetch origin 2>/dev/null
 
   # If no existing issue, create one from title
@@ -59,11 +111,7 @@ ghwt() {
     fi
 
     local issue_url
-    if $is_fork; then
-      issue_url=$(gh issue create -R "$upstream_repo" --title "$title" --body "" 2>&1)
-    else
-      issue_url=$(gh issue create --title "$title" --body "" 2>&1)
-    fi
+    issue_url=$(gh issue create -R "$issue_repo" --title "$title" --body "" 2>&1)
     if [[ $? -ne 0 ]]; then
       echo "Failed to create issue: $issue_url"
       return 1
@@ -123,7 +171,7 @@ ghwt() {
     if $is_fork; then
       # For forks, create branch manually (gh issue develop requires write access to upstream)
       local issue_title
-      issue_title=$(gh issue view "$issue_number" -R "$upstream_repo" --json title -q '.title' 2>&1)
+      issue_title=$(gh issue view "$issue_number" -R "$issue_repo" --json title -q '.title' 2>&1)
       if [[ $? -ne 0 ]]; then
         echo "Failed to fetch issue title: $issue_title"
         return 1
@@ -132,17 +180,30 @@ ghwt() {
       slug=$(echo "$issue_title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')
       branch_name="${issue_number}-${slug}"
 
-      local default_branch
-      default_branch=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null)
-      local base="${base_branch:-${default_branch:-main}}"
-      git branch "$branch_name" "origin/$base"
+      # Determine the commit to branch from.
+      # -c (base_branch set): user wants to branch off their own fork's branch → origin.
+      # Default: branch from the just-synced local default branch (which tracks upstream).
+      local base_ref
+      if [[ -n "$base_branch" ]]; then
+        base_ref="origin/$base_branch"
+      elif [[ "$sync_source" == "upstream" ]]; then
+        base_ref="upstream/$default_branch"
+      elif [[ "$sync_source" == "origin" ]]; then
+        base_ref="origin/$default_branch"
+      else
+        # Ad-hoc upstream URL — the sync fetch left FETCH_HEAD pointing at the tip
+        base_ref="FETCH_HEAD"
+      fi
+
+      git branch "$branch_name" "$base_ref"
       git push -u origin "$branch_name"
-      echo "Created branch: $branch_name"
+      echo "Created branch: $branch_name (from $base_ref)"
     else
       # Use gh issue develop to create a branch
-      local develop_output base_arg=""
-      [[ -n "$base_branch" ]] && base_arg="--base $base_branch"
-      develop_output=$(gh issue develop "$issue_number" $base_arg 2>&1)
+      local develop_output
+      local -a base_arg=()
+      [[ -n "$base_branch" ]] && base_arg=(--base "$base_branch")
+      develop_output=$(gh issue develop "$issue_number" "${base_arg[@]}" 2>&1)
       if [[ $? -ne 0 ]]; then
         echo "Failed to create branch: $develop_output"
         return 1
@@ -175,8 +236,7 @@ ghwt() {
   _worktree_setup "$worktree_path"
 
   # Build the claude command
-  local issue_view_cmd="gh issue view ${issue_number}"
-  $is_fork && issue_view_cmd="gh issue view ${issue_number} -R ${upstream_repo}"
+  local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
   local claude_cmd="claude --permission-mode plan \"Implement GitHub issue #${issue_number}. Run ${issue_view_cmd} for details.\""
 
   # Open Cursor and tile left

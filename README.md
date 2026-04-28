@@ -15,18 +15,19 @@ Custom shell functions live in `functions/`. `bootstrap.sh` symlinks the directo
 The main workflow. One command turns an idea into a checked-out worktree with Claude already running in plan mode against the issue.
 
 ```sh
-ghwt [-c] [-b <branch>] [-i <number>] "Issue title"
+ghwt [-c] [-f] [-b <branch>] [-i <number>] "Issue title"
 ```
 
 | Flag | Description |
 | --- | --- |
 | `-c`, `--current` | Branch from the current branch (default: repo's default branch). |
 | `-b <branch>` | Use an existing branch instead of creating one. |
+| `-f`, `--fork` | Target the fork's own issue tracker instead of upstream (forks only). |
 | `-i <number>` | Develop an existing issue instead of creating a new one. |
 
 What it does:
 
-1. Detects whether you're in a fork (compares `origin` URL with what `gh` resolves) and routes issue creation to the upstream repo if so.
+1. Detects whether you're in a fork (compares `origin` URL with what `gh` resolves) and routes issue creation to the upstream repo if so. Pass `-f`/`--fork` to instead create/reuse issues on the fork itself; `-i <N>` then resolves against whichever target is in effect.
 2. Fetches all remote refs.
 3. Creates the issue (or reuses `-i <N>`) and creates the branch — via `gh issue develop` for direct repos, or manually for forks.
 4. Creates a worktree at `~/.claude/worktrees/{repo}-{issue-number}`.
