@@ -1,9 +1,10 @@
 # Create a GitHub issue (or develop an existing one) and set up a worktree
 # Usage: ghwt [-c] [-f] [-b <branch>] [-i <number>] "Issue title"
+#        ghwt -e <number>   # open existing worktree/branch for review
 # Automatically detects forks and routes issues to the upstream repo by default;
 # pass -f/--fork to target the fork's own issue tracker instead.
 ghwt() {
-  local base_branch="" issue_number="" branch_name="" target_fork=false
+  local base_branch="" issue_number="" branch_name="" target_fork=false existing_mode=false
 
   # Parse flags
   while [[ "$1" == -* ]]; do
@@ -20,14 +21,21 @@ ghwt() {
         issue_number="$2"
         shift 2
         ;;
+      -e|--existing)
+        existing_mode=true
+        issue_number="$2"
+        shift 2
+        ;;
       -f|--fork)
         target_fork=true
         shift
         ;;
       -h|--help)
         echo "Usage: ghwt [-c] [-f] [-b <branch>] [-i <number>] \"Issue title\""
+        echo "       ghwt -e <number>"
         echo "  -b, --branch B  Use existing branch instead of creating one"
         echo "  -c, --current   Branch from current branch instead of main"
+        echo "  -e, --existing N  Open existing worktree/branch for issue N to review progress"
         echo "  -f, --fork      Target the fork's own issues instead of upstream"
         echo "  -i, --issue N   Develop an existing issue instead of creating one"
         echo "  -h, --help      Show this help"
@@ -66,6 +74,59 @@ ghwt() {
 
   if $is_fork; then
     echo "Detected fork of $upstream_repo; issues → $issue_repo"
+  fi
+
+  # -e/--existing: open an existing worktree/branch for this issue to review progress
+  if $existing_mode; then
+    if [[ -z "$issue_number" ]]; then
+      echo "Error: -e/--existing requires an issue number"
+      return 1
+    fi
+
+    local repo_root repo_name worktree_path
+    repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+    repo_name=$(basename "$repo_root")
+    worktree_path="$HOME/.claude/worktrees/${repo_name}-${issue_number}"
+
+    if [[ ! -d "$worktree_path" ]]; then
+      # No worktree yet — find a branch matching "<issue>-<slug>" locally first, then on origin
+      local found_branch=""
+      found_branch=$(git for-each-ref --format='%(refname:short)' "refs/heads/${issue_number}-*" 2>/dev/null | head -1)
+      if [[ -z "$found_branch" ]]; then
+        git fetch origin 2>/dev/null
+        found_branch=$(git ls-remote --heads origin 2>/dev/null \
+          | grep -E "refs/heads/${issue_number}-[a-z0-9-]+$" \
+          | head -1 | sed 's#.*refs/heads/##')
+      fi
+
+      if [[ -z "$found_branch" ]]; then
+        echo "No existing branch found for issue #${issue_number}"
+        return 1
+      fi
+
+      echo "Found branch: $found_branch"
+      git fetch origin "$found_branch" 2>/dev/null
+
+      mkdir -p ~/.claude/worktrees
+      git worktree add "$worktree_path" "$found_branch" || return 1
+      echo "Worktree created at: $worktree_path"
+      _worktree_setup "$worktree_path"
+    else
+      echo "Found existing worktree at: $worktree_path"
+    fi
+
+    local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
+    local claude_cmd="claude --permission-mode plan \"Review progress on GitHub issue #${issue_number}. Run ${issue_view_cmd} for details, then inspect the working tree and recent commits to summarise progress and what remains.\""
+
+    cursor --new-window "$worktree_path"
+    splt
+
+    if [[ -n "${TMUX:-}" ]]; then
+      tmux new-window -n "review-${issue_number}" -c "$worktree_path" "$claude_cmd"
+    else
+      cd "$worktree_path" && eval "$claude_cmd"
+    fi
+    return 0
   fi
 
   # Resolve the upstream default branch (gh resolves forks to parent, so this
