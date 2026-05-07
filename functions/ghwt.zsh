@@ -171,8 +171,19 @@ ghwt() {
       return 1
     fi
 
+    # Open $EDITOR so the user can flesh out the issue body.
+    # Saving empty (or quitting) keeps the one-liner fast path.
+    local body=""
+    if [[ -t 0 ]]; then
+      local body_file
+      body_file=$(mktemp -t ghwt-issue.XXXXXX) || return 1
+      ${EDITOR:-vim} "$body_file"
+      body=$(<"$body_file")
+      rm -f "$body_file"
+    fi
+
     local issue_url
-    issue_url=$(gh issue create -R "$issue_repo" --title "$title" --body "" 2>&1)
+    issue_url=$(gh issue create -R "$issue_repo" --title "$title" --body "$body" 2>&1)
     if [[ $? -ne 0 ]]; then
       echo "Failed to create issue: $issue_url"
       return 1
@@ -298,7 +309,7 @@ ghwt() {
 
   # Build the claude command
   local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
-  local claude_cmd="claude --permission-mode plan \"Implement GitHub issue #${issue_number}. Run ${issue_view_cmd} for details.\""
+  local claude_cmd="claude --permission-mode plan \"Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or doesn't have enough context to plan confidently, ask me what I want to accomplish and any constraints, then update the issue body via 'gh issue edit ${issue_number} -R ${issue_repo}' so the context is captured on GitHub before you start.\""
 
   # Open Cursor and tile left
   cursor --new-window "$worktree_path"
