@@ -171,15 +171,16 @@ ghwt() {
       return 1
     fi
 
-    # Open $EDITOR so the user can flesh out the issue body.
-    # Saving empty (or quitting) keeps the one-liner fast path.
+    # Optionally capture a one-line body. Default is no body (just the title).
     local body=""
     if [[ -t 0 ]]; then
-      local body_file
-      body_file=$(mktemp -t ghwt-issue.XXXXXX) || return 1
-      ${EDITOR:-vim} "$body_file"
-      body=$(<"$body_file")
-      rm -f "$body_file"
+      printf "Do you want to add more to the issue? [y/N] "
+      local add_body_reply
+      read -r add_body_reply
+      if [[ "$add_body_reply" == [Yy]* ]]; then
+        printf "Body: "
+        read -r body
+      fi
     fi
 
     local issue_url
