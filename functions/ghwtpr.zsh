@@ -84,6 +84,14 @@ ghwtpr() {
       return 1
     fi
 
+    # For same-repo PRs, also update the remote-tracking ref and set upstream
+    # so the local branch is linked to origin/<branch> (push/pull works normally).
+    # Cross-repo PRs live on a contributor's fork, so we can't track them here.
+    if [[ "$is_cross" != "true" ]] && ! $is_fork; then
+      git fetch origin "+refs/heads/${head_ref}:refs/remotes/origin/${head_ref}" 2>/dev/null
+      git branch --set-upstream-to="origin/${head_ref}" "$local_branch" 2>/dev/null
+    fi
+
     # Create the worktree on the PR branch
     git worktree add "$worktree_path" "$local_branch"
     if [[ $? -ne 0 ]]; then
