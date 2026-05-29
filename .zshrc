@@ -22,6 +22,9 @@ antidote load
 # starship
 eval "$(starship init zsh)"
 
+# zoxide (smarter cd — use `z <dir>`, `zi` for interactive)
+eval "$(zoxide init zsh)"
+
 # bun completions
 [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 

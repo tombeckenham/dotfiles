@@ -97,7 +97,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 ## What `bootstrap.sh` does
 
 1. Installs Xcode Command Line Tools and Homebrew if either is missing.
-2. Runs `brew bundle` against `Brewfile` — installs starship, fnm, pnpm, pyenv, gh, jq, gnupg, lefthook, tmux, pinentry-mac, doppler, plus the Ghostty, Cursor and OrbStack casks.
+2. Runs `brew bundle` against `Brewfile` — installs starship, fnm, pnpm, pyenv, gh, jq, gnupg, lefthook, tmux, zoxide, pinentry-mac, doppler, plus the Ghostty, Cursor and OrbStack casks.
 3. Clones [Antidote](https://github.com/mattmc3/antidote) (zsh plugin manager) into `~/.antidote`.
 4. Symlinks `.zshrc`, `.zsh_plugins.txt`, `starship.toml`, `gpg.conf`, `gpg-agent.conf` and `functions/` into `$HOME` (and `~/.config`, `~/.gnupg`).
 5. Authenticates `gh` with the `user` and `write:gpg_key` scopes (refreshes the token if those scopes aren't already granted).
@@ -110,7 +110,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 
 ## Shell config
 
-- **`.zshrc`** — loads Antidote plugins, sets up the Starship prompt, adds Bun / pnpm / fnm to `PATH`, lazy-loads pyenv on first `python`/`pip` use, and auto-sources every `*.zsh` file in `~/.zsh_functions/`.
+- **`.zshrc`** — loads Antidote plugins, sets up the Starship prompt, initialises zoxide (`z`, `zi`), adds Bun / pnpm / fnm to `PATH`, lazy-loads pyenv on first `python`/`pip` use, and auto-sources every `*.zsh` file in `~/.zsh_functions/`.
 - **`.zsh_plugins.txt`** — `zsh-autosuggestions`, `zsh-syntax-highlighting`, `zsh-completions`, `zsh-history-substring-search`, plus the `git`, `node`, `npm` and `macos` ohmyzsh plugin paths.
 - **`starship.toml`** — fast prompt: directory (truncated to repo root), git branch and status, command duration if it took longer than 2s. Language modules are disabled to keep prompt rendering quick.
 - **`gpg.conf` / `gpg-agent.conf`** — `auto-key-retrieve`, `pinentry-mac`, 10-minute default cache (2-hour max).

@@ -11,6 +11,7 @@ brew "jq"
 brew "gnupg"
 brew "lefthook"
 brew "tmux"
+brew "zoxide"
 brew "pinentry-mac"
 brew "dopplerhq/cli/doppler"
 

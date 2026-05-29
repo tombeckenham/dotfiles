@@ -1,13 +1,17 @@
 # Create a worktree to review a GitHub PR and launch Claude with review-pr
 # Usage: ghwtpr [-i] <pr-number>
-# Automatically detects forks and fetches PRs from the upstream repo.
+# Detects forks and checks out the PR head (including PRs raised from a
+# contributor's fork) via `gh pr checkout`, which wires up the fork remote and
+# push config so maintainers can push fixes back when edits are allowed.
+# Also gathers staleness info (how far behind the base branch the PR is) and
+# feeds it into the review so relevance/out-of-date concerns get assessed.
 ghwtpr() {
   if [[ "$1" == "-h" || "$1" == "--help" || -z "$1" ]]; then
     echo "Usage: ghwtpr [-i] <pr-number>"
     echo "  Check out a PR into a worktree and run /pr-review-toolkit:review-pr"
     echo "  -i, --issue  Optional flag before PR number (e.g. ghwtpr -i 42)"
     echo ""
-    echo "Automatically detects forks and fetches PRs from the upstream repo."
+    echo "Handles PRs from forks and reports how out of date the PR is."
     return 0
   fi
 
@@ -36,22 +40,35 @@ ghwtpr() {
     echo "Detected fork of $upstream_repo"
   fi
 
-  # Fetch PR metadata to determine branch naming
-  local -a pr_view_args=()
-  $is_fork && pr_view_args=(-R "$upstream_repo")
+  # The repo that owns the PR. When we're a fork, the PR lives upstream.
+  local -a repo_args=()
+  $is_fork && repo_args=(-R "$upstream_repo")
+
+  # Fetch PR metadata: branch naming, fork detection, mergeability, freshness.
   local pr_data
-  pr_data=$(gh pr view "${pr_view_args[@]}" "$pr_number" --json headRefName,isCrossRepository 2>&1)
+  pr_data=$(gh pr view "${repo_args[@]}" "$pr_number" \
+    --json headRefName,baseRefName,isCrossRepository,maintainerCanModify,mergeable,mergeStateStatus,createdAt,updatedAt,headRepositoryOwner 2>&1)
   if [[ $? -ne 0 ]]; then
     echo "Failed to fetch PR info: $pr_data"
     return 1
   fi
-  local head_ref is_cross local_branch
+  local head_ref base_ref is_cross can_modify mergeable merge_state created_at updated_at fork_owner
   head_ref=$(echo "$pr_data" | jq -r '.headRefName')
+  base_ref=$(echo "$pr_data" | jq -r '.baseRefName')
   is_cross=$(echo "$pr_data" | jq -r '.isCrossRepository')
-  # Cross-repo PRs are snapshots from a contributor's fork — namespace to avoid
-  # clobbering any local branch of the same name
+  can_modify=$(echo "$pr_data" | jq -r '.maintainerCanModify')
+  mergeable=$(echo "$pr_data" | jq -r '.mergeable')
+  merge_state=$(echo "$pr_data" | jq -r '.mergeStateStatus')
+  created_at=$(echo "$pr_data" | jq -r '.createdAt')
+  updated_at=$(echo "$pr_data" | jq -r '.updatedAt')
+  fork_owner=$(echo "$pr_data" | jq -r '.headRepositoryOwner.login')
+
+  # Cross-repo PRs are snapshots from a contributor's fork — namespace the local
+  # branch to avoid clobbering any local branch of the same name.
+  local local_branch
   if [[ "$is_cross" == "true" ]]; then
     local_branch="pr-${pr_number}-${head_ref}"
+    echo "PR #${pr_number} is from fork ${fork_owner} (cross-repo)"
   else
     local_branch="$head_ref"
   fi
@@ -74,30 +91,31 @@ ghwtpr() {
       return 1
     fi
 
-    # Fetch the PR head into a local branch
-    local fetch_source="origin"
-    $is_fork && fetch_source="https://github.com/${upstream_repo}.git"
-    echo "Fetching PR #${pr_number} into branch '${local_branch}'..."
-    git fetch "$fetch_source" "refs/pull/${pr_number}/head:refs/heads/${local_branch}"
-    if [[ $? -ne 0 ]]; then
-      echo "Failed to fetch PR #${pr_number}"
+    # Create a detached worktree first, then let `gh pr checkout` populate it.
+    # gh handles fork PRs properly: it adds the contributor's fork as a remote,
+    # fetches the head branch, sets upstream tracking, and (when the PR allows
+    # maintainer edits) configures pushRemote so we can push fixes back.
+    echo "Checking out PR #${pr_number} (branch '${local_branch}')..."
+    if ! git worktree add --detach "$worktree_path" >/dev/null; then
+      echo "Failed to create worktree"
       return 1
     fi
 
-    # For same-repo PRs, also update the remote-tracking ref and set upstream
-    # so the local branch is linked to origin/<branch> (push/pull works normally).
-    # Cross-repo PRs live on a contributor's fork, so we can't track them here.
-    if [[ "$is_cross" != "true" ]] && ! $is_fork; then
-      git fetch origin "+refs/heads/${head_ref}:refs/remotes/origin/${head_ref}" 2>/dev/null
-      git branch --set-upstream-to="origin/${head_ref}" "$local_branch" 2>/dev/null
-    fi
-
-    # Create the worktree on the PR branch
-    git worktree add "$worktree_path" "$local_branch"
-    if [[ $? -ne 0 ]]; then
-      echo "Failed to create worktree"
+    local -a checkout_args=("$pr_number" -b "$local_branch")
+    $is_fork && checkout_args+=(-R "$upstream_repo")
+    if ! (cd "$worktree_path" && gh pr checkout "${checkout_args[@]}"); then
+      echo "Failed to check out PR #${pr_number}"
+      git worktree remove --force "$worktree_path" 2>/dev/null
       git branch -D "$local_branch" 2>/dev/null
       return 1
+    fi
+
+    if [[ "$is_cross" == "true" ]]; then
+      if [[ "$can_modify" == "true" ]]; then
+        echo "Maintainer edits allowed — pushes go back to ${fork_owner}'s fork."
+      else
+        echo "Note: maintainer edits are NOT allowed on this PR (read-only review)."
+      fi
     fi
 
     echo "Worktree created at: $worktree_path"
@@ -106,8 +124,35 @@ ghwtpr() {
     _worktree_setup "$worktree_path"
   fi
 
-  # Build the claude command to run the review slash command
-  local claude_cmd="claude \"/pr-review-toolkit:review-pr ${pr_number}\""
+  # Measure how out of date the PR is relative to its base branch so the review
+  # can judge whether it's still relevant or needs a rebase.
+  local base_fetch_source="origin" behind="?" ahead="?"
+  $is_fork && base_fetch_source="https://github.com/${upstream_repo}.git"
+  if git -C "$worktree_path" fetch "$base_fetch_source" "$base_ref" 2>/dev/null; then
+    behind=$(git -C "$worktree_path" rev-list --count HEAD..FETCH_HEAD 2>/dev/null)
+    ahead=$(git -C "$worktree_path" rev-list --count FETCH_HEAD..HEAD 2>/dev/null)
+  fi
+  echo "PR is ${behind} commit(s) behind ${base_ref}, ${ahead} ahead (mergeable: ${mergeable})"
+
+  # Relevance context appended to the review prompt (no double quotes — this gets
+  # embedded in a double-quoted claude command below).
+  local relevance_note="PR #${pr_number} freshness context for this review:
+- Base branch: ${base_ref}
+- Behind ${base_ref} by: ${behind} commit(s)
+- Ahead of ${base_ref} by: ${ahead} commit(s)
+- Mergeable: ${mergeable} / merge state: ${merge_state}
+- From fork: ${is_cross} (owner: ${fork_owner}, maintainer edits: ${can_modify})
+- Opened: ${created_at}; last updated: ${updated_at}
+
+As part of the review, assess how relevant and current this PR still is. If it is
+significantly behind ${base_ref}, conflicting, or stale, flag it, explain whether
+the changes are still applicable to the current codebase, and recommend whether it
+needs a rebase or update before it can be merged."
+
+  # Build the claude command to run the review slash command with relevance context
+  local claude_cmd="claude \"/pr-review-toolkit:review-pr ${pr_number}
+
+${relevance_note}\""
 
   # Open Cursor and tile left
   cursor --new-window "$worktree_path"
