@@ -310,7 +310,7 @@ ghwt() {
 
   # Build the claude command
   local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
-  local claude_cmd="claude --permission-mode acceptEdits \"Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or doesn't have enough context to plan confidently, ask me what I want to accomplish and any constraints, then update the issue body via 'gh issue edit ${issue_number} -R ${issue_repo}' so the context is captured on GitHub before you start.\""
+  local claude_cmd="claude --permission-mode auto \"Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or doesn't have enough context to plan confidently, ask me what I want to accomplish and any constraints, then update the issue body via 'gh issue edit ${issue_number} -R ${issue_repo}' so the context is captured on GitHub before you start.\""
 
   # Open Cursor and tile left
   cursor --new-window "$worktree_path"
