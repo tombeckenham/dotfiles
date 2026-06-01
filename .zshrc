@@ -51,3 +51,9 @@ pip3() { pyenv; pip3 "$@" }
 
 # Source all function files
 for f in ~/.zsh_functions/*.zsh; source $f
+
+# >>> grok installer >>>
+export PATH="$HOME/.grok/bin:$PATH"
+fpath=(~/.grok/completions/zsh $fpath)
+autoload -Uz compinit && compinit -C
+# <<< grok installer <<<
