@@ -116,7 +116,7 @@ ghwt() {
     fi
 
     local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
-    local claude_cmd="claude --permission-mode plan \"Review progress on GitHub issue #${issue_number}. Run ${issue_view_cmd} for details, then inspect the working tree and recent commits to summarise progress and what remains.\""
+    local claude_cmd="claude --permission-mode auto \"Review progress on GitHub issue #${issue_number}. Run ${issue_view_cmd} for details, then inspect the working tree and recent commits to summarise progress and what remains.\""
 
     cursor --new-window "$worktree_path"
     splt
