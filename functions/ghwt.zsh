@@ -38,6 +38,8 @@ ghwt() {
         echo "  -e, --existing N  Open existing worktree/branch for issue N to review progress"
         echo "  -f, --fork      Target the fork's own issues instead of upstream"
         echo "  -i, --issue N   Develop an existing issue instead of creating one"
+        echo ""
+        echo "If N is actually a PR number, ghwt resolves the linked issue and offers to use it."
         echo "  -h, --help      Show this help"
         echo ""
         echo "Automatically detects forks and creates issues on the upstream repo,"
@@ -74,6 +76,40 @@ ghwt() {
 
   if $is_fork; then
     echo "Detected fork of $upstream_repo; issues → $issue_repo"
+  fi
+
+  # If the given number is actually a PR (issues and PRs share a number space),
+  # resolve the linked issue — from the PR's closing references, falling back to
+  # the branch naming convention "<issue>-<slug>" — and offer to use it instead.
+  if [[ -n "$issue_number" ]]; then
+    local pr_fields
+    pr_fields=$(gh pr view "$issue_number" -R "$issue_repo" \
+      --json headRefName,closingIssuesReferences \
+      -q '"\(.closingIssuesReferences[0].number // "")\t\(.headRefName)"' 2>/dev/null)
+    if [[ -n "$pr_fields" ]]; then
+      local linked_issue="${pr_fields%%$'\t'*}"
+      local pr_branch="${pr_fields#*$'\t'}"
+      if [[ -z "$linked_issue" ]]; then
+        linked_issue=$(echo "$pr_branch" | grep -oE '^[0-9]+')
+      fi
+
+      if [[ -z "$linked_issue" ]]; then
+        echo "#${issue_number} is a pull request (branch: ${pr_branch}) and no linked issue could be found."
+        echo "Use ghwtpr ${issue_number} to review the PR itself."
+        return 1
+      fi
+
+      printf "#%s is a pull request (branch: %s). Open issue #%s instead? [Y/n] " \
+        "$issue_number" "$pr_branch" "$linked_issue"
+      local pr_reply
+      read -r pr_reply
+      if [[ -z "$pr_reply" || "$pr_reply" == [Yy]* ]]; then
+        issue_number="$linked_issue"
+      else
+        echo "Aborting. Use ghwtpr ${issue_number} to review the PR itself."
+        return 1
+      fi
+    fi
   fi
 
   # -e/--existing: open an existing worktree/branch for this issue to review progress
