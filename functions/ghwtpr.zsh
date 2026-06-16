@@ -63,14 +63,14 @@ ghwtpr() {
   updated_at=$(echo "$pr_data" | jq -r '.updatedAt')
   fork_owner=$(echo "$pr_data" | jq -r '.headRepositoryOwner.login')
 
-  # Cross-repo PRs are snapshots from a contributor's fork — namespace the local
-  # branch to avoid clobbering any local branch of the same name.
-  local local_branch
+  # Check out under the PR's own head branch name. gh ties a local checkout back
+  # to its PR by this branch name (plus the remote it configures), so renaming it
+  # — e.g. namespacing cross-repo PRs — stops `gh pr view/status/checks` from
+  # recognising the worktree as the PR. A clash with an existing local branch is
+  # caught by the guard below rather than papered over with a rename.
+  local local_branch="$head_ref"
   if [[ "$is_cross" == "true" ]]; then
-    local_branch="pr-${pr_number}-${head_ref}"
     echo "PR #${pr_number} is from fork ${fork_owner} (cross-repo)"
-  else
-    local_branch="$head_ref"
   fi
 
   # Resolve main repo root (works from both main checkout and linked worktrees)
@@ -101,7 +101,7 @@ ghwtpr() {
       return 1
     fi
 
-    local -a checkout_args=("$pr_number" -b "$local_branch")
+    local -a checkout_args=("$pr_number")
     $is_fork && checkout_args+=(-R "$upstream_repo")
     if ! (cd "$worktree_path" && gh pr checkout "${checkout_args[@]}"); then
       echo "Failed to check out PR #${pr_number}"
