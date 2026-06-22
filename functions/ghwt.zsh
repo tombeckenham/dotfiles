@@ -155,7 +155,7 @@ ghwt() {
     local claude_cmd="claude --permission-mode plan \"Review progress on GitHub issue #${issue_number}. Run ${issue_view_cmd} for details, then inspect the working tree and recent commits to summarise progress and what remains.\""
 
     cursor --new-window "$worktree_path"
-    splt
+    splt "$worktree_path"
 
     if [[ -n "${TMUX:-}" ]]; then
       tmux new-window -n "review-${issue_number}" -c "$worktree_path" "$claude_cmd"
@@ -352,7 +352,7 @@ ghwt() {
   cursor --new-window "$worktree_path"
 
   # Show PICK ME banner and tile Cursor left
-  splt
+  splt "$worktree_path"
 
   if [[ -n "${TMUX:-}" ]]; then
     # Tmux: launch Claude in a new tmux window (persistent/reattachable)

@@ -1,4 +1,9 @@
 splt() {
+  # Path/name of the folder open in Cursor, so the correct window gets tiled left
+  # even when another Cursor window is full-screen. Defaults to the current
+  # directory for manual `splt` invocations; callers like ghwt pass the worktree.
+  local target_folder="${1:-$PWD}"
+
   local cols=$(tput cols)
   local rows=$(tput lines)
 
@@ -55,7 +60,7 @@ splt() {
   done
 
   # Activate Cursor, exit full-screen if needed, then tile left
-  _cursor_tile_left
+  _cursor_tile_left "$target_folder"
 
   # Wait for user to continue
   printf '\n%sPress enter to continue...%s' "$yel" "$rst"

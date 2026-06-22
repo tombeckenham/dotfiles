@@ -156,7 +156,7 @@ ${relevance_note}\""
 
   # Open Cursor and tile left
   cursor --new-window "$worktree_path"
-  splt
+  splt "$worktree_path"
 
   if [[ -n "${TMUX:-}" ]]; then
     # Tmux: launch Claude in a new tmux window (persistent/reattachable)
