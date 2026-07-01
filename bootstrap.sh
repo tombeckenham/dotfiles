@@ -212,6 +212,12 @@ if ! command -v opencode &>/dev/null; then
   curl -fsSL https://opencode.ai/install | bash
 fi
 
+# 14. Grok Build CLI
+if ! command -v grok &>/dev/null; then
+  echo "==> Installing Grok Build CLI..."
+  curl -fsSL https://x.ai/cli/install.sh | bash
+fi
+
 # 15. Power management (always-on server mode)
 echo "==> Configuring power management..."
 sudo pmset -a sleep 0 disksleep 0

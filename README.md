@@ -104,7 +104,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 6. Configures git globally: LFS filters, `commit.gpgsign=true`, `tag.gpgSign=true`, and `gh auth setup-git` for HTTPS token auth.
 7. If git identity isn't set, prompts for name/email (auto-detected from existing config and the GitHub API), offers to generate an Ed25519 GPG signing key, and registers the key with GitHub via `gh gpg-key add`.
 8. Installs Node LTS via `fnm`, Python 3.12 via `pyenv`, and Bun via the official installer.
-9. `bun install -g vercel wrangler`, then installs the Claude Code and OpenCode CLIs.
+9. `bun install -g vercel wrangler`, then installs the Claude Code, OpenCode, and Grok Build CLIs.
 10. `pmset` for always-on server mode (`sleep 0`, `displaysleep 5`, `autorestart 1`).
 11. `lefthook install` — wires up the pre-commit secret scanner from `lefthook.yml`.
 
@@ -143,4 +143,4 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 - macOS only — uses `xcode-select`, `pmset`, `osascript`, `pinentry-mac` and `/opt/homebrew` paths.
 - `bootstrap.sh` calls `sudo pmset` to keep the machine awake. Remove that block if you don't want always-on power management.
 - `ghwt` and `wt` assume Claude Code is installed and on `PATH` (`bootstrap.sh` installs it). Worktrees live under `~/.claude/worktrees/`.
-- If you fork this repo, prune `Brewfile` and skip the steps in `bootstrap.sh` you don't want (Vercel, Wrangler, OpenCode, GPG key generation, etc.).
+- If you fork this repo, prune `Brewfile` and skip the steps in `bootstrap.sh` you don't want (Vercel, Wrangler, OpenCode, Grok, GPG key generation, etc.).

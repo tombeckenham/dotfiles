@@ -135,7 +135,7 @@ ghwtpr() {
   echo "PR is ${behind} commit(s) behind ${base_ref}, ${ahead} ahead (mergeable: ${mergeable})"
 
   # Relevance context appended to the review prompt (no double quotes — this gets
-  # embedded in a double-quoted claude command below).
+  # embedded in a double-quoted AI command below).
   local relevance_note="PR #${pr_number} freshness context for this review:
 - Base branch: ${base_ref}
 - Behind ${base_ref} by: ${behind} commit(s)
@@ -149,20 +149,35 @@ significantly behind ${base_ref}, conflicting, or stale, flag it, explain whethe
 the changes are still applicable to the current codebase, and recommend whether it
 needs a rebase or update before it can be merged."
 
-  # Build the claude command to run the review slash command with relevance context
-  local claude_cmd="claude \"/pr-review-toolkit:review-pr ${pr_number}
+  # A/B: choose claude or grok deterministically per ticket (issue/PR mod 2; fallback mod of datetime)
+  local selector="${pr_number}"
+  [[ -z "$selector" || "$selector" == "0" ]] && selector=$(date +%s)
+  local ai_tool="claude"
+  if (( selector % 2 == 0 )); then
+    ai_tool="grok"
+  fi
+
+  # Build the AI command (use grok's /review skill when selected)
+  local ai_cmd
+  if [[ "$ai_tool" == "grok" ]]; then
+    ai_cmd="grok \"/review --pr ${pr_number}
 
 ${relevance_note}\""
+  else
+    ai_cmd="claude \"/pr-review-toolkit:review-pr ${pr_number}
+
+${relevance_note}\""
+  fi
 
   # Open Cursor and tile left
   cursor --new-window "$worktree_path"
   splt "$worktree_path"
 
   if [[ -n "${TMUX:-}" ]]; then
-    # Tmux: launch Claude in a new tmux window (persistent/reattachable)
-    tmux new-window -n "review-${pr_number}" -c "$worktree_path" "$claude_cmd"
+    # Tmux: launch AI (claude/grok) in a new tmux window (persistent/reattachable)
+    tmux new-window -n "${ai_tool}-review-${pr_number}" -c "$worktree_path" "$ai_cmd"
   else
-    # No tmux: run Claude in current terminal
-    cd "$worktree_path" && eval "$claude_cmd"
+    # No tmux: run AI in current terminal
+    cd "$worktree_path" && eval "$ai_cmd"
   fi
 }
