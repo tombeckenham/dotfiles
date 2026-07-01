@@ -157,10 +157,10 @@ needs a rebase or update before it can be merged."
     ai_tool="grok"
   fi
 
-  # Build the AI command (use grok's /review skill when selected)
+  # Build the AI command (use grok's /review-pr skill when selected)
   local ai_cmd
   if [[ "$ai_tool" == "grok" ]]; then
-    ai_cmd="grok \"/review --pr ${pr_number}
+    ai_cmd="grok \"/review-pr ${pr_number}
 
 ${relevance_note}\""
   else
