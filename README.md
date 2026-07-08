@@ -46,6 +46,21 @@ Removes the worktree at `~/.claude/worktrees/{repo}-{N}` and prunes the branch m
 
 Source: `functions/ghwtrm.zsh`.
 
+### `ghwtb` — branch + worktree (no issue)
+
+```sh
+ghwtb [-c] [-b <branch>] [<branch-name-or-description>]
+```
+
+Same worktree + Cursor + Claude/Grok flow as `ghwt`, but skips GitHub issue creation. Creates a new branch (or reuses an existing one), checks it out at `~/.claude/worktrees/{repo}-{sanitised-branch}`, and launches the AI agent. Pass a description with spaces to auto-slugify the branch name (e.g. `"Add dark mode"` → `add-dark-mode`).
+
+| Flag | Description |
+| --- | --- |
+| `-c`, `--current` | Branch from the current branch (default: repo's default branch). |
+| `-b <branch>` | Use an explicit branch name; any remaining text is passed to the AI as context. |
+
+Source: `functions/ghwtb.zsh`.
+
 ### `wt` — generic worktree for an existing branch
 
 ```sh
@@ -130,6 +145,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 ├── lefthook.yml           # Pre-commit hooks
 └── functions/             # Custom zsh commands
     ├── ghwt.zsh
+    ├── ghwtb.zsh
     ├── ghwtrm.zsh
     ├── wt.zsh
     ├── ght.zsh
@@ -142,5 +158,5 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 
 - macOS only — uses `xcode-select`, `pmset`, `osascript`, `pinentry-mac` and `/opt/homebrew` paths.
 - `bootstrap.sh` calls `sudo pmset` to keep the machine awake. Remove that block if you don't want always-on power management.
-- `ghwt` and `wt` assume Claude Code is installed and on `PATH` (`bootstrap.sh` installs it). Worktrees live under `~/.claude/worktrees/`.
+- `ghwt`, `ghwtb`, and `wt` assume Claude Code is installed and on `PATH` (`bootstrap.sh` installs it). Worktrees live under `~/.claude/worktrees/`.
 - If you fork this repo, prune `Brewfile` and skip the steps in `bootstrap.sh` you don't want (Vercel, Wrangler, OpenCode, Grok, GPG key generation, etc.).
