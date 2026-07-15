@@ -59,6 +59,10 @@ splt() {
     printf '%s\n' "$fill_line"
   done
 
+  # Open Cursor at the target folder first so the window exists and has a
+  # title we can match when tiling (manual `splt` and ghwt* callers).
+  cursor --new-window "$target_folder"
+
   # Activate Cursor, exit full-screen if needed, then tile left
   _cursor_tile_left "$target_folder"
 

@@ -140,7 +140,6 @@ ghwtb() {
   fi
   ai_cmd+=" Ask me for any missing context before you start.\""
 
-  cursor --new-window "$worktree_path"
   splt "$worktree_path"
 
   if [[ -n "${TMUX:-}" ]]; then

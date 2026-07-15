@@ -169,8 +169,7 @@ ${relevance_note}\""
 ${relevance_note}\""
   fi
 
-  # Open Cursor and tile left
-  cursor --new-window "$worktree_path"
+  # Open Cursor (via splt), show PICK ME banner, and tile left
   splt "$worktree_path"
 
   if [[ -n "${TMUX:-}" ]]; then

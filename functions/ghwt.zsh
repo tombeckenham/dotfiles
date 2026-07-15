@@ -162,7 +162,6 @@ ghwt() {
     local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
     local ai_cmd="${ai_tool} \"Review progress on GitHub issue #${issue_number}. Run ${issue_view_cmd} for details, then inspect the working tree and recent commits to summarise progress and what remains.\""
 
-    cursor --new-window "$worktree_path"
     splt "$worktree_path"
 
     if [[ -n "${TMUX:-}" ]]; then
@@ -364,10 +363,7 @@ ghwt() {
   local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
   local ai_cmd="${ai_tool} --permission-mode auto \"Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or doesn't have enough context to plan confidently, ask me what I want to accomplish and any constraints, then update the issue body via 'gh issue edit ${issue_number} -R ${issue_repo}' so the context is captured on GitHub before you start.\""
 
-  # Open Cursor and tile left
-  cursor --new-window "$worktree_path"
-
-  # Show PICK ME banner and tile Cursor left
+  # Open Cursor (via splt), show PICK ME banner, and tile left
   splt "$worktree_path"
 
   if [[ -n "${TMUX:-}" ]]; then
