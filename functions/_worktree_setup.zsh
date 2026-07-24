@@ -39,6 +39,21 @@ _worktree_setup() {
       -o -type f -name '.env.local' -print)
     [[ $env_count -gt 0 ]] && echo "Copied $env_count .env.local file(s)"
 
+    # Copy gitignored .vscode files (tracked ones come with the checkout).
+    if [[ -d "$repo_root/.vscode" ]]; then
+      local vs_file vs_rel vs_count=0
+      while IFS= read -r vs_file; do
+        vs_rel="${vs_file#$repo_root/}"
+        if git -C "$repo_root" check-ignore -q "$vs_rel"; then
+          mkdir -p "$(dirname "$worktree_path/$vs_rel")"
+          cp "$vs_file" "$worktree_path/$vs_rel"
+          echo "  → Copied $vs_rel"
+          vs_count=$((vs_count+1))
+        fi
+      done < <(find "$repo_root/.vscode" -type f)
+      [[ $vs_count -gt 0 ]] && echo "Copied $vs_count .vscode file(s)"
+    fi
+
     # Detect package manager by lockfile and install at the worktree root.
     if [[ -f "$worktree_path/package.json" ]]; then
       local pm=""
