@@ -31,7 +31,7 @@ What it does:
 2. Fetches all remote refs.
 3. Creates the issue (or reuses `-i <N>`) and creates the branch — via `gh issue develop` for direct repos, or manually for forks.
 4. Creates a worktree at `~/.claude/worktrees/{repo}-{issue-number}`.
-5. Runs `_worktree_setup` — executes `."setup-worktree"[]` from `.cursor/worktrees.json` if present, otherwise copies `.env.local` and `local.db` if they exist.
+5. Runs `_worktree_setup` — executes `."setup-worktree"[]` from `.cursor/worktrees.json` if present, otherwise copies `.env.local`, `.dev.vars`, and `local.db` if they exist.
 6. Calls `splt` (opens Cursor at the worktree, tiles left, shows the PICK ME banner), then launches `claude --permission-mode plan "Implement GitHub issue #N..."` in a new tmux window if `$TMUX` is set, otherwise in the current terminal.
 
 Source: `functions/ghwt.zsh`.

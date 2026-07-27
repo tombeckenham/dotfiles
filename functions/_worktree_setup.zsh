@@ -24,7 +24,7 @@ _worktree_setup() {
   else
     [[ -f "$repo_root/local.db" ]] && cp "$repo_root/local.db" "$worktree_path/local.db"
 
-    # Copy every .env.local found in the source repo, preserving relative paths.
+    # Copy every .env.local and .dev.vars found in the source repo, preserving relative paths.
     # These files are gitignored so they don't come across with the worktree checkout.
     local env_file rel dest env_count=0
     while IFS= read -r env_file; do
@@ -36,8 +36,8 @@ _worktree_setup() {
       env_count=$((env_count+1))
     done < <(find "$repo_root" \
       \( -name node_modules -o -name .git -o -name .next -o -name dist -o -name build -o -name .turbo \) -prune \
-      -o -type f -name '.env.local' -print)
-    [[ $env_count -gt 0 ]] && echo "Copied $env_count .env.local file(s)"
+      -o -type f \( -name '.env.local' -o -name '.dev.vars' \) -print)
+    [[ $env_count -gt 0 ]] && echo "Copied $env_count env file(s)"
 
     # Copy gitignored .vscode files (tracked ones come with the checkout).
     if [[ -d "$repo_root/.vscode" ]]; then
