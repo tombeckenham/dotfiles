@@ -73,7 +73,9 @@ ghwtb() {
   local branch_exists=false
   if git show-ref --verify --quiet "refs/heads/${branch_name}"; then
     branch_exists=true
-  elif git show-ref --verify --quiet "refs/remotes/origin/${branch_name}"; then
+  elif git ls-remote --exit-code --heads origin "$branch_name" >/dev/null 2>&1; then
+    # Ask origin directly rather than trusting local remote-tracking refs,
+    # which may be stale if the branch was pushed from elsewhere.
     branch_exists=true
     echo "Fetching existing branch '$branch_name' from origin..."
     git fetch origin "$branch_name" || return 1

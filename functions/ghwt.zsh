@@ -151,13 +151,15 @@ ghwt() {
       echo "Found existing worktree at: $worktree_path"
     fi
 
-    # A/B: choose claude or grok deterministically per ticket (issue/PR mod 2; fallback mod of datetime)
+    # A/B/C: choose grok, kimi, or claude deterministically per ticket (issue/PR mod 3; fallback mod of datetime)
     local selector="${issue_number}"
     [[ -z "$selector" || "$selector" == "0" ]] && selector=$(date +%s)
-    local ai_tool="claude"
-    if (( selector % 2 == 0 )); then
-      ai_tool="grok"
-    fi
+    local ai_tool
+    case $(( selector % 3 )) in
+      0) ai_tool="grok" ;;
+      1) ai_tool="kimi" ;;
+      *) ai_tool="claude" ;;
+    esac
 
     local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
     local ai_cmd="${ai_tool} \"Review progress on GitHub issue #${issue_number}. Run ${issue_view_cmd} for details, then inspect the working tree and recent commits to summarise progress and what remains.\""
@@ -351,23 +353,27 @@ ghwt() {
   # Run worktree setup
   _worktree_setup "$worktree_path"
 
-  # A/B: choose claude or grok deterministically per ticket (issue/PR mod 2; fallback mod of datetime)
+  # A/B/C: choose grok, kimi, or claude deterministically per ticket (issue/PR mod 3; fallback mod of datetime)
   local selector="${issue_number}"
   [[ -z "$selector" || "$selector" == "0" ]] && selector=$(date +%s)
-  local ai_tool="claude"
-  if (( selector % 2 == 0 )); then
-    ai_tool="grok"
-  fi
+  local ai_tool
+  case $(( selector % 3 )) in
+    0) ai_tool="grok" ;;
+    1) ai_tool="kimi" ;;
+    *) ai_tool="claude" ;;
+  esac
 
-  # Build the AI command
+  # Build the AI command (auto-approve flag differs per tool: kimi uses --auto)
+  local ai_flags="--permission-mode auto"
+  [[ "$ai_tool" == "kimi" ]] && ai_flags="--auto"
   local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
-  local ai_cmd="${ai_tool} --permission-mode auto \"Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or doesn't have enough context to plan confidently, ask me what I want to accomplish and any constraints, then update the issue body via 'gh issue edit ${issue_number} -R ${issue_repo}' so the context is captured on GitHub before you start.\""
+  local ai_cmd="${ai_tool} ${ai_flags} \"Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or doesn't have enough context to plan confidently, ask me what I want to accomplish and any constraints, then update the issue body via 'gh issue edit ${issue_number} -R ${issue_repo}' so the context is captured on GitHub before you start.\""
 
   # Open Cursor (via splt), show PICK ME banner, and tile left
   splt "$worktree_path"
 
   if [[ -n "${TMUX:-}" ]]; then
-    # Tmux: launch AI (claude/grok) in a new tmux window (persistent/reattachable)
+    # Tmux: launch AI (grok/kimi/claude) in a new tmux window (persistent/reattachable)
     tmux new-window -n "${ai_tool}-${issue_number}" -c "$worktree_path" "$ai_cmd"
   else
     # No tmux: run AI in current terminal

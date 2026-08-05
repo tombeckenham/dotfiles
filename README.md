@@ -10,9 +10,66 @@ macOS dev environment focused on a GitHub-issue → git-worktree → Claude Code
 
 Custom shell functions live in `functions/`. `bootstrap.sh` symlinks the directory to `~/.zsh_functions/`, and `.zshrc` auto-sources every `*.zsh` file inside it.
 
+### `ghsb` — issue + Herdr session + finish review pipeline (Architecture A)
+
+Sandbox-oriented successor to the `ghwt` *session* layer. Ghostty stays your terminal; **Herdr** holds the agent session. Optional **Cloudflare Sandbox** provisions a remote preview/dev env. When work is done, `ghsb finish` runs the full review handoff.
+
+```sh
+ghsb [-c] [-f] [-b <branch>] [-i <N>] [--local|--cf] "Issue title"
+ghsb finish [session-id]
+ghsb review <pr-number>          # same as ghsbpr
+ghsb status|attach|links|list|rm [session-id]
+```
+
+| Piece | Role |
+| --- | --- |
+| Ghostty | Terminal UI (unchanged) |
+| Herdr | Persistent agent panes (cockpit) |
+| Local worktree | Same `~/.claude/worktrees/{repo}-{N}` as `ghwt` |
+| Cloudflare Sandbox (`--cf`) | Remote clone + dev server + preview URL |
+| `ghsb finish` | PR → Playwright video (if UI) → pr-review → ranked files → links |
+
+**Finish pipeline** (run after the agent pushes, or tell the agent to run it):
+
+1. Push branch and ensure a PR exists  
+2. Rank changed files for manual review (`~/.ghsb/artifacts/.../files-to-review.txt`)  
+3. If user-facing paths changed and a preview/dev URL exists → Playwright walkthrough video  
+4. Launch pr-review agent in Herdr (`/review-pr` or `/pr-review-toolkit:review-pr`)  
+5. Print PR, github.dev, VS Code web, dev env, and PR preview links  
+
+```sh
+# Local Herdr session (default)
+ghsb "Add dark mode"
+
+# Also provision CF preview sandbox (needs deploy + env)
+export GHSB_API_URL="https://ghsb-sandbox.<you>.workers.dev"
+export GHSB_API_TOKEN="…"
+ghsb --cf -i 42
+
+ghsb finish          # from the worktree, or: ghsb finish myrepo-42
+ghsb links
+```
+
+Cloudflare Worker lives in `sandbox/` — see `sandbox/README.md`. Session state: `~/.ghsb/sessions/`.
+
+Agents use **permission-mode auto** (not always-approve).
+
+Source: `functions/ghsb.zsh`, `functions/_ghsb_common.zsh`, `scripts/ghsb-record-preview.mjs`.
+
+### `ghsbpr` / `ghsb review` — PR review in Herdr
+
+Architecture A sibling of `ghwtpr`: checkout a PR, rank files for manual review, launch pr-review in **Herdr**, print links.
+
+```sh
+ghsbpr <pr-number>
+ghsb review <pr-number>   # same
+```
+
+Source: `functions/ghsbpr.zsh`.
+
 ### `ghwt` — GitHub issue + worktree + Claude
 
-The main workflow. One command turns an idea into a checked-out worktree with Claude already running in plan mode against the issue.
+Classic workflow. One command turns an idea into a checked-out worktree with an agent in tmux (or the current terminal).
 
 ```sh
 ghwt [-c] [-f] [-b <branch>] [-i <number>] "Issue title"
@@ -143,9 +200,16 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 ├── gpg.conf               # GPG settings
 ├── gpg-agent.conf         # GPG agent
 ├── lefthook.yml           # Pre-commit hooks
+├── scripts/
+│   └── ghsb-record-preview.mjs   # Playwright PR preview video
+├── sandbox/               # Cloudflare Sandbox Worker for ghsb --cf
 └── functions/             # Custom zsh commands
+    ├── ghsb.zsh
+    ├── ghsbpr.zsh
+    ├── _ghsb_common.zsh
     ├── ghwt.zsh
     ├── ghwtb.zsh
+    ├── ghwtpr.zsh
     ├── ghwtrm.zsh
     ├── wt.zsh
     ├── ght.zsh

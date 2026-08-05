@@ -61,3 +61,6 @@ autoload -Uz compinit && compinit -C
 
 # Added by Antigravity CLI installer
 export PATH="/Users/tom/.local/bin:$PATH"
+
+# kimi-code
+export PATH="/Users/tom/.kimi-code/bin:$PATH"
