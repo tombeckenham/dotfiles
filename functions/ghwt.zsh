@@ -151,13 +151,12 @@ ghwt() {
       echo "Found existing worktree at: $worktree_path"
     fi
 
-    # A/B/C: choose grok, kimi, or claude deterministically per ticket (issue/PR mod 3; fallback mod of datetime)
+    # A/B: choose grok or claude deterministically per ticket (issue/PR mod 2; fallback mod of datetime)
     local selector="${issue_number}"
     [[ -z "$selector" || "$selector" == "0" ]] && selector=$(date +%s)
     local ai_tool
-    case $(( selector % 3 )) in
+    case $(( selector % 2 )) in
       0) ai_tool="grok" ;;
-      1) ai_tool="kimi" ;;
       *) ai_tool="claude" ;;
     esac
 
@@ -353,19 +352,17 @@ ghwt() {
   # Run worktree setup
   _worktree_setup "$worktree_path"
 
-  # A/B/C: choose grok, kimi, or claude deterministically per ticket (issue/PR mod 3; fallback mod of datetime)
+  # A/B: choose grok or claude deterministically per ticket (issue/PR mod 2; fallback mod of datetime)
   local selector="${issue_number}"
   [[ -z "$selector" || "$selector" == "0" ]] && selector=$(date +%s)
   local ai_tool
-  case $(( selector % 3 )) in
+  case $(( selector % 2 )) in
     0) ai_tool="grok" ;;
-    1) ai_tool="kimi" ;;
     *) ai_tool="claude" ;;
   esac
 
-  # Build the AI command (auto-approve flag differs per tool: kimi uses --auto)
+  # Build the AI command
   local ai_flags="--permission-mode auto"
-  [[ "$ai_tool" == "kimi" ]] && ai_flags="--auto"
   local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
   local ai_cmd="${ai_tool} ${ai_flags} \"Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or doesn't have enough context to plan confidently, ask me what I want to accomplish and any constraints, then update the issue body via 'gh issue edit ${issue_number} -R ${issue_repo}' so the context is captured on GitHub before you start.\""
 
@@ -373,7 +370,7 @@ ghwt() {
   splt "$worktree_path"
 
   if [[ -n "${TMUX:-}" ]]; then
-    # Tmux: launch AI (grok/kimi/claude) in a new tmux window (persistent/reattachable)
+    # Tmux: launch AI (grok/claude) in a new tmux window (persistent/reattachable)
     tmux new-window -n "${ai_tool}-${issue_number}" -c "$worktree_path" "$ai_cmd"
   else
     # No tmux: run AI in current terminal

@@ -8,13 +8,12 @@ _ghsb_init_dirs() {
   mkdir -p "$GHSB_SESSIONS_DIR" "$GHSB_ARTIFACTS_DIR"
 }
 
-# Pick implement/review agent: grok / kimi / claude (issue mod 3)
+# Pick implement/review agent: grok / claude (issue mod 2 → 50:50)
 _ghsb_pick_ai() {
   local selector="${1:-}"
   [[ -z "$selector" || "$selector" == "0" ]] && selector=$(date +%s)
-  case $(( selector % 3 )) in
+  case $(( selector % 2 )) in
     0) echo "grok" ;;
-    1) echo "kimi" ;;
     *) echo "claude" ;;
   esac
 }
@@ -23,18 +22,16 @@ _ghsb_pick_ai() {
 _ghsb_herdr_kind() {
   case "$1" in
     grok) echo "grok" ;;
-    kimi) echo "kimi" ;;
     claude) echo "claude" ;;
     *) echo "claude" ;;
   esac
 }
 
 # CLI flags for agent runs (permission auto, not always-approve/yolo).
-# Grok/Claude: --permission-mode auto. Kimi: --auto.
+# Grok/Claude: --permission-mode auto.
 # Note: a CLI --permission-mode overrides [ui] permission_mode in config.toml.
 _ghsb_ai_flags() {
   case "$1" in
-    kimi) echo "--auto" ;;
     grok|claude) echo "--permission-mode auto" ;;
     *) echo "--permission-mode auto" ;;
   esac
@@ -330,7 +327,6 @@ _ghsb_herdr_launch() {
   # Flags only after -- ; long task text goes through agent prompt (official recipe).
   local -a agent_args=()
   case "$ai_tool" in
-    kimi) agent_args=(--auto) ;;
     grok|claude) agent_args=(--permission-mode auto) ;;
   esac
 
