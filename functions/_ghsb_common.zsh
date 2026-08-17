@@ -269,44 +269,24 @@ _ghsb_herdr_send_prompt() {
   return 1
 }
 
-# Canonical Herdr recipe (docs + live-verified on herdr 0.8.0):
-#   1. workspace create --cwd … --label … --no-focus
-#   2. pane_id = .result.root_pane.pane_id
-#   3. wait until process-info shows shell in foreground
-#   4. agent start <name> --kind <kind> --pane <pane_id> -- <agent-flags…>
-#   5. dismiss Claude trust dialog if needed
-#   6. agent prompt <name> "<task>"   # long prompt here, NOT on argv
-# Fallback if agent start keeps failing:
-#   pane run <pane> "<binary> <flags>" → agent rename → agent prompt
-#
+# Start an agent in an existing Herdr pane (does not create a workspace).
 # Prints on stdout (one line): pane_id|agent_name|workspace_id
 # Diagnostics → stderr.
-# Usage: _ghsb_herdr_launch <label> <worktree> <ai_tool> <prompt>
-_ghsb_herdr_launch() {
-  local label="$1" worktree="$2" ai_tool="$3" prompt="$4"
+# Usage: _ghsb_herdr_launch_in_pane <pane_id> <workspace_id> <label> <worktree> <ai_tool> <prompt>
+_ghsb_herdr_launch_in_pane() {
+  local pane_id="$1" workspace_id="$2" label="$3" worktree="$4" ai_tool="$5" prompt="$6"
   _ghsb_ensure_herdr || return 1
+  [[ -n "$pane_id" ]] || {
+    echo "herdr: missing pane id" >&2
+    return 1
+  }
 
   # New Claude worktrees always hit the trust dialog otherwise.
   if [[ "$ai_tool" == "claude" ]]; then
     _ghsb_claude_trust_worktree "$worktree"
   fi
 
-  local created pane_id workspace_id kind
-  # Do not invent IDs — capture JSON from create (herdr docs).
-  created=$(herdr workspace create --cwd "$worktree" --label "$label" --no-focus 2>&1)
-  if [[ $? -ne 0 ]]; then
-    echo "herdr workspace create failed: $created" >&2
-    return 1
-  fi
-
-  pane_id=$(printf '%s\n' "$created" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
-  workspace_id=$(printf '%s\n' "$created" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
-  if [[ -z "$pane_id" ]]; then
-    echo "Could not parse .result.root_pane.pane_id from herdr workspace create:" >&2
-    echo "$created" >&2
-    return 1
-  fi
-
+  local kind
   kind="$(_ghsb_herdr_kind "$ai_tool")"
   # Names: [a-z][a-z0-9_-]{0,31}, unique among live agents
   local agent_name
@@ -369,7 +349,6 @@ _ghsb_herdr_launch() {
     flags="$(_ghsb_ai_flags "$ai_tool")"
     q_bin=$(command -v "$ai_tool" 2>/dev/null || echo "$ai_tool")
     # Start agent only (no task on argv) so agent prompt can drive it properly.
-    # workspace create already set cwd; still cd for safety.
     herdr pane run "$pane_id" "cd $(printf %q "$worktree") && $(printf %q "$q_bin") $flags" >/dev/null 2>&1 || return 1
     # Wait until Herdr recognizes the agent in this pane
     local wait_elapsed=0
@@ -391,6 +370,42 @@ _ghsb_herdr_launch() {
 
   # pane|name|workspace — parse with cut/IFS in callers
   printf '%s|%s|%s\n' "$pane_id" "$agent_name" "$workspace_id"
+}
+
+# Canonical Herdr recipe (docs + live-verified on herdr 0.8.0):
+#   1. workspace create --cwd … --label … --no-focus
+#   2. pane_id = .result.root_pane.pane_id
+#   3. wait until process-info shows shell in foreground
+#   4. agent start <name> --kind <kind> --pane <pane_id> -- <agent-flags…>
+#   5. dismiss Claude trust dialog if needed
+#   6. agent prompt <name> "<task>"   # long prompt here, NOT on argv
+# Fallback if agent start keeps failing:
+#   pane run <pane> "<binary> <flags>" → agent rename → agent prompt
+#
+# Prints on stdout (one line): pane_id|agent_name|workspace_id
+# Diagnostics → stderr.
+# Usage: _ghsb_herdr_launch <label> <worktree> <ai_tool> <prompt>
+_ghsb_herdr_launch() {
+  local label="$1" worktree="$2" ai_tool="$3" prompt="$4"
+  _ghsb_ensure_herdr || return 1
+
+  local created pane_id workspace_id
+  # Do not invent IDs — capture JSON from create (herdr docs).
+  created=$(herdr workspace create --cwd "$worktree" --label "$label" --no-focus 2>&1)
+  if [[ $? -ne 0 ]]; then
+    echo "herdr workspace create failed: $created" >&2
+    return 1
+  fi
+
+  pane_id=$(printf '%s\n' "$created" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
+  workspace_id=$(printf '%s\n' "$created" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
+  if [[ -z "$pane_id" ]]; then
+    echo "Could not parse .result.root_pane.pane_id from herdr workspace create:" >&2
+    echo "$created" >&2
+    return 1
+  fi
+
+  _ghsb_herdr_launch_in_pane "$pane_id" "$workspace_id" "$label" "$worktree" "$ai_tool" "$prompt"
 }
 
 # Resolve path to dotfiles scripts/ (works when functions/ is symlinked)
@@ -429,6 +444,196 @@ _ghsb_detect_repo() {
   fi
   # Prints: is_fork\tfork_repo\tupstream_repo
   printf '%s\t%s\t%s\n' "$is_fork" "$fork_repo" "$upstream_repo"
+}
+
+# Issue → branch → worktree → _worktree_setup. Shared by ghsb and ghi.
+# Writes results to GHSB_CHECKOUT: issue branch worktree session_id repo origin default_branch
+# Usage: _ghsb_checkout_issue <cmd> <base_branch> <issue_number> <branch_name> <target_fork> [title...]
+typeset -gA GHSB_CHECKOUT
+_ghsb_checkout_issue() {
+  local cmd="${1:-ghsb}"
+  local base_branch="$2" issue_number="$3" branch_name="$4" target_fork="$5"
+  shift 5
+  GHSB_CHECKOUT=()
+
+  local is_fork=false upstream_repo="" fork_repo=""
+  local detect
+  detect=$(_ghsb_detect_repo)
+  is_fork=${detect%%$'\t'*}
+  fork_repo=${detect#*$'\t'}; fork_repo=${fork_repo%%$'\t'*}
+  upstream_repo=${detect##*$'\t'}
+
+  local issue_repo="$upstream_repo"
+  if [[ "$target_fork" == "true" ]]; then
+    if [[ "$is_fork" == "true" ]]; then
+      issue_repo="$fork_repo"
+    else
+      echo "Note: -f/--fork passed but this repo is not a fork; ignoring."
+    fi
+  fi
+  [[ "$is_fork" == "true" ]] && echo "Detected fork of $upstream_repo; issues → $issue_repo"
+
+  local default_branch
+  default_branch=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null)
+  default_branch="${default_branch:-main}"
+
+  local sync_source="origin"
+  if [[ "$is_fork" == "true" ]]; then
+    if git remote get-url upstream >/dev/null 2>&1; then
+      sync_source="upstream"
+    else
+      sync_source="https://github.com/${upstream_repo}.git"
+    fi
+  fi
+
+  echo "Syncing $default_branch from $sync_source..."
+  local current_branch
+  current_branch=$(git branch --show-current 2>/dev/null)
+  if [[ "$current_branch" == "$default_branch" ]]; then
+    git pull --ff-only "$sync_source" "$default_branch" 2>/dev/null \
+      || echo "  (local $default_branch not fast-forwardable; continuing)"
+  else
+    git fetch "$sync_source" "${default_branch}:${default_branch}" 2>/dev/null \
+      || git fetch "$sync_source" "$default_branch" 2>/dev/null
+  fi
+  git fetch origin 2>/dev/null
+
+  if [[ -z "$issue_number" ]]; then
+    local title="$1"
+    if [[ -z "$title" ]]; then
+      echo "Usage: ${cmd} [-i N] \"Issue title\""
+      return 1
+    fi
+    local body=""
+    if [[ -t 0 ]]; then
+      printf "Add issue body? [y/N] "
+      local add_body_reply
+      read -r add_body_reply
+      if [[ "$add_body_reply" == [Yy]* ]]; then
+        printf "Body: "
+        read -r body
+      fi
+    fi
+    local issue_url
+    issue_url=$(gh issue create -R "$issue_repo" --title "$title" --body "$body" 2>&1)
+    if [[ $? -ne 0 ]]; then
+      echo "Failed to create issue: $issue_url"
+      return 1
+    fi
+    issue_number=$(echo "$issue_url" | grep -oE '[0-9]+$')
+    echo "Created issue #$issue_number: $issue_url"
+  else
+    echo "Developing existing issue #$issue_number"
+  fi
+
+  if [[ -z "$branch_name" ]]; then
+    local -a existing_branches
+    existing_branches=("${(@f)$(git ls-remote --heads origin 2>/dev/null \
+      | grep -E "refs/heads/${issue_number}-[a-z0-9-]+$" \
+      | sed 's#.*refs/heads/##')}")
+    [[ ${#existing_branches[@]} -eq 1 && -z "${existing_branches[1]}" ]] && existing_branches=()
+
+    if [[ ${#existing_branches[@]} -eq 1 ]]; then
+      printf "Found existing branch: %s\nUse it? [Y/n] " "${existing_branches[1]}"
+      local reply
+      read -r reply
+      if [[ -z "$reply" || "$reply" == [Yy]* ]]; then
+        branch_name="${existing_branches[1]}"
+        git fetch origin "$branch_name" 2>/dev/null
+      fi
+    elif [[ ${#existing_branches[@]} -gt 1 ]]; then
+      echo "Found multiple branches for issue #${issue_number}:"
+      local i=1
+      for b in "${existing_branches[@]}"; do
+        echo "  [$i] $b"
+        i=$((i+1))
+      done
+      printf "Select [1-%d, or n for new]: " "${#existing_branches[@]}"
+      local reply
+      read -r reply
+      if [[ "$reply" == <-> ]] && (( reply >= 1 && reply <= ${#existing_branches[@]} )); then
+        branch_name="${existing_branches[$reply]}"
+        git fetch origin "$branch_name" 2>/dev/null
+      fi
+    fi
+  fi
+
+  if [[ -z "$branch_name" ]]; then
+    if [[ "$is_fork" == "true" ]]; then
+      local issue_title slug base_ref
+      issue_title=$(gh issue view "$issue_number" -R "$issue_repo" --json title -q '.title' 2>&1) || {
+        echo "Failed to fetch issue title: $issue_title"
+        return 1
+      }
+      slug=$(echo "$issue_title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')
+      branch_name="${issue_number}-${slug}"
+      if [[ -n "$base_branch" ]]; then
+        base_ref="origin/$base_branch"
+      elif [[ "$sync_source" == "upstream" ]]; then
+        base_ref="upstream/$default_branch"
+      elif [[ "$sync_source" == "origin" ]]; then
+        base_ref="origin/$default_branch"
+      else
+        base_ref="FETCH_HEAD"
+      fi
+      git branch "$branch_name" "$base_ref"
+      git push -u origin "$branch_name"
+      echo "Created branch: $branch_name (from $base_ref)"
+    else
+      local develop_output
+      local -a base_arg=()
+      [[ -n "$base_branch" ]] && base_arg=(--base "$base_branch")
+      develop_output=$(gh issue develop "$issue_number" "${base_arg[@]}" 2>&1) || {
+        echo "Failed to create branch: $develop_output"
+        return 1
+      }
+      branch_name=$(echo "$develop_output" | grep '/tree/' | head -1 | grep -oE '[^/]+$')
+      echo "Created branch: $branch_name"
+    fi
+  else
+    echo "Using existing branch: $branch_name"
+  fi
+
+  mkdir -p ~/.claude/worktrees
+  local repo_root repo_name worktree_path session_id origin_repo
+  repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+  repo_name=$(basename "$repo_root")
+  worktree_path="$HOME/.claude/worktrees/${repo_name}-${issue_number}"
+  session_id="${repo_name}-${issue_number}"
+  origin_repo=$(git remote get-url origin 2>/dev/null | sed 's#.*github\.com[/:]##; s#\.git$##')
+
+  if [[ -d "$worktree_path" ]]; then
+    echo "Worktree already exists at: $worktree_path"
+  else
+    git worktree add "$worktree_path" "$branch_name" || return 1
+    echo "Worktree created at: $worktree_path"
+    _worktree_setup "$worktree_path"
+  fi
+
+  GHSB_CHECKOUT[issue]="$issue_number"
+  GHSB_CHECKOUT[branch]="$branch_name"
+  GHSB_CHECKOUT[worktree]="$worktree_path"
+  GHSB_CHECKOUT[session_id]="$session_id"
+  GHSB_CHECKOUT[repo]="$issue_repo"
+  GHSB_CHECKOUT[origin]="$origin_repo"
+  GHSB_CHECKOUT[default_branch]="$default_branch"
+  return 0
+}
+
+# Shared implement prompt for ghsb / ghi agents.
+_ghsb_implement_prompt() {
+  local issue_number="$1" issue_repo="$2" branch_name="$3" session_id="$4"
+  local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
+  local finish_cmd="ghsb finish ${session_id}"
+  printf '%s\n' "Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or lacks context, ask me what to accomplish and any constraints, then update the issue via 'gh issue edit ${issue_number} -R ${issue_repo}' before coding.
+
+Work in this worktree. Commit on branch ${branch_name} and push to origin regularly.
+
+When implementation is complete:
+1. Push the branch
+2. Open a PR if one does not exist (gh pr create), linking issue #${issue_number}
+3. Run: ${finish_cmd}
+That finish step records a Playwright video for user-facing changes, runs pr-review, ranks files for manual review, and prints preview/dev links."
 }
 
 # OSC-8 hyperlink when stdout is a TTY (Ghostty/iTerm/etc). Herdr Ctrl-click also

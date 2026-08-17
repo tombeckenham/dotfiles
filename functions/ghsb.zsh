@@ -124,172 +124,14 @@ _ghsb_start() {
     backend="local"
   fi
 
-  # ── Repo / fork detection (same as ghwt) ──
-  local is_fork=false upstream_repo="" fork_repo=""
-  local detect
-  detect=$(_ghsb_detect_repo)
-  is_fork=${detect%%$'\t'*}
-  fork_repo=${detect#*$'\t'}; fork_repo=${fork_repo%%$'\t'*}
-  upstream_repo=${detect##*$'\t'}
-
-  local issue_repo="$upstream_repo"
-  if $target_fork; then
-    if [[ "$is_fork" == "true" ]]; then
-      issue_repo="$fork_repo"
-    else
-      echo "Note: -f/--fork passed but this repo is not a fork; ignoring."
-    fi
-  fi
-  [[ "$is_fork" == "true" ]] && echo "Detected fork of $upstream_repo; issues → $issue_repo"
-
-  local default_branch
-  default_branch=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null)
-  default_branch="${default_branch:-main}"
-
-  # Earliest open links (repo known; branch/worktree refined later).
-  local repo_root_early repo_name_early worktree_guess=""
-  repo_root_early=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" 2>/dev/null) || true
-  repo_name_early=$(basename "${repo_root_early:-}")
-  if [[ -n "$issue_number" && -n "$repo_name_early" ]]; then
-    worktree_guess="$HOME/.claude/worktrees/${repo_name_early}-${issue_number}"
-  fi
-  _ghsb_print_open_first "$issue_repo" "${branch_name:-$default_branch}" "" "$worktree_guess"
-  echo ""
-
-  local sync_source="origin"
-  if [[ "$is_fork" == "true" ]]; then
-    if git remote get-url upstream >/dev/null 2>&1; then
-      sync_source="upstream"
-    else
-      sync_source="https://github.com/${upstream_repo}.git"
-    fi
-  fi
-
-  echo "Syncing $default_branch from $sync_source..."
-  local current_branch
-  current_branch=$(git branch --show-current 2>/dev/null)
-  if [[ "$current_branch" == "$default_branch" ]]; then
-    git pull --ff-only "$sync_source" "$default_branch" 2>/dev/null \
-      || echo "  (local $default_branch not fast-forwardable; continuing)"
-  else
-    git fetch "$sync_source" "${default_branch}:${default_branch}" 2>/dev/null \
-      || git fetch "$sync_source" "$default_branch" 2>/dev/null
-  fi
-  git fetch origin 2>/dev/null
-
-  # ── Issue ──
-  if [[ -z "$issue_number" ]]; then
-    local title="$1"
-    if [[ -z "$title" ]]; then
-      echo "Usage: ghsb [-i N] \"Issue title\""
-      return 1
-    fi
-    local body=""
-    if [[ -t 0 ]]; then
-      printf "Add issue body? [y/N] "
-      local add_body_reply
-      read -r add_body_reply
-      if [[ "$add_body_reply" == [Yy]* ]]; then
-        printf "Body: "
-        read -r body
-      fi
-    fi
-    local issue_url
-    issue_url=$(gh issue create -R "$issue_repo" --title "$title" --body "$body" 2>&1)
-    if [[ $? -ne 0 ]]; then
-      echo "Failed to create issue: $issue_url"
-      return 1
-    fi
-    issue_number=$(echo "$issue_url" | grep -oE '[0-9]+$')
-    echo "Created issue #$issue_number: $issue_url"
-  else
-    echo "Developing existing issue #$issue_number"
-  fi
-
-  # ── Branch ──
-  if [[ -z "$branch_name" ]]; then
-    local -a existing_branches
-    existing_branches=("${(@f)$(git ls-remote --heads origin 2>/dev/null \
-      | grep -E "refs/heads/${issue_number}-[a-z0-9-]+$" \
-      | sed 's#.*refs/heads/##')}")
-    [[ ${#existing_branches[@]} -eq 1 && -z "${existing_branches[1]}" ]] && existing_branches=()
-
-    if [[ ${#existing_branches[@]} -eq 1 ]]; then
-      printf "Found existing branch: %s\nUse it? [Y/n] " "${existing_branches[1]}"
-      local reply
-      read -r reply
-      if [[ -z "$reply" || "$reply" == [Yy]* ]]; then
-        branch_name="${existing_branches[1]}"
-        git fetch origin "$branch_name" 2>/dev/null
-      fi
-    elif [[ ${#existing_branches[@]} -gt 1 ]]; then
-      echo "Found multiple branches for issue #${issue_number}:"
-      local i=1
-      for b in "${existing_branches[@]}"; do
-        echo "  [$i] $b"
-        i=$((i+1))
-      done
-      printf "Select [1-%d, or n for new]: " "${#existing_branches[@]}"
-      local reply
-      read -r reply
-      if [[ "$reply" == <-> ]] && (( reply >= 1 && reply <= ${#existing_branches[@]} )); then
-        branch_name="${existing_branches[$reply]}"
-        git fetch origin "$branch_name" 2>/dev/null
-      fi
-    fi
-  fi
-
-  if [[ -z "$branch_name" ]]; then
-    if [[ "$is_fork" == "true" ]]; then
-      local issue_title slug base_ref
-      issue_title=$(gh issue view "$issue_number" -R "$issue_repo" --json title -q '.title' 2>&1) || {
-        echo "Failed to fetch issue title: $issue_title"
-        return 1
-      }
-      slug=$(echo "$issue_title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')
-      branch_name="${issue_number}-${slug}"
-      if [[ -n "$base_branch" ]]; then
-        base_ref="origin/$base_branch"
-      elif [[ "$sync_source" == "upstream" ]]; then
-        base_ref="upstream/$default_branch"
-      elif [[ "$sync_source" == "origin" ]]; then
-        base_ref="origin/$default_branch"
-      else
-        base_ref="FETCH_HEAD"
-      fi
-      git branch "$branch_name" "$base_ref"
-      git push -u origin "$branch_name"
-      echo "Created branch: $branch_name (from $base_ref)"
-    else
-      local develop_output
-      local -a base_arg=()
-      [[ -n "$base_branch" ]] && base_arg=(--base "$base_branch")
-      develop_output=$(gh issue develop "$issue_number" "${base_arg[@]}" 2>&1) || {
-        echo "Failed to create branch: $develop_output"
-        return 1
-      }
-      branch_name=$(echo "$develop_output" | grep '/tree/' | head -1 | grep -oE '[^/]+$')
-      echo "Created branch: $branch_name"
-    fi
-  else
-    echo "Using existing branch: $branch_name"
-  fi
-
-  # ── Worktree ──
-  mkdir -p ~/.claude/worktrees
-  local repo_root repo_name worktree_path session_id
-  repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-  repo_name=$(basename "$repo_root")
-  worktree_path="$HOME/.claude/worktrees/${repo_name}-${issue_number}"
-  session_id="${repo_name}-${issue_number}"
-
-  if [[ -d "$worktree_path" ]]; then
-    echo "Worktree already exists at: $worktree_path"
-  else
-    git worktree add "$worktree_path" "$branch_name" || return 1
-    echo "Worktree created at: $worktree_path"
-    _worktree_setup "$worktree_path"
-  fi
+  _ghsb_checkout_issue ghsb "$base_branch" "$issue_number" "$branch_name" "$target_fork" "$@" || return 1
+  issue_number="${GHSB_CHECKOUT[issue]}"
+  branch_name="${GHSB_CHECKOUT[branch]}"
+  local worktree_path="${GHSB_CHECKOUT[worktree]}"
+  local session_id="${GHSB_CHECKOUT[session_id]}"
+  local issue_repo="${GHSB_CHECKOUT[repo]}"
+  local origin_repo="${GHSB_CHECKOUT[origin]}"
+  local default_branch="${GHSB_CHECKOUT[default_branch]}"
 
   # Open links with final branch + worktree (vscode.dev first).
   _ghsb_print_open_first "$issue_repo" "$branch_name" "" "$worktree_path"
@@ -297,9 +139,6 @@ _ghsb_start() {
 
   local ai_tool
   ai_tool=$(_ghsb_pick_ai "$issue_number")
-
-  local origin_repo
-  origin_repo=$(git remote get-url origin 2>/dev/null | sed 's#.*github\.com[/:]##; s#\.git$##')
 
   # ── Cloudflare sandbox (preview / remote env) ──
   local cf_sandbox_id="" cf_preview_url="" cf_dev_url="" cf_terminal_url=""
@@ -364,17 +203,8 @@ _ghsb_start() {
   _ghsb_write_session "$session_id" "$session_json"
 
   # ── Agent prompt ──
-  local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
-  local finish_cmd="ghsb finish ${session_id}"
-  local ai_prompt="Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or lacks context, ask me what to accomplish and any constraints, then update the issue via 'gh issue edit ${issue_number} -R ${issue_repo}' before coding.
-
-Work in this worktree. Commit on branch ${branch_name} and push to origin regularly.
-
-When implementation is complete:
-1. Push the branch
-2. Open a PR if one does not exist (gh pr create), linking issue #${issue_number}
-3. Run: ${finish_cmd}
-That finish step records a Playwright video for user-facing changes, runs pr-review, ranks files for manual review, and prints preview/dev links."
+  local ai_prompt
+  ai_prompt=$(_ghsb_implement_prompt "$issue_number" "$issue_repo" "$branch_name" "$session_id")
 
   if $no_agent; then
     echo "Session ready (no agent): $session_id"

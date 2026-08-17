@@ -56,6 +56,33 @@ Agents use **permission-mode auto** (not always-approve).
 
 Source: `functions/ghsb.zsh`, `functions/_ghsb_common.zsh`, `scripts/ghsb-record-preview.mjs`.
 
+### `ghi` — issue + worktree in the current Herdr space
+
+Same checkout as `ghsb` (issue → branch → worktree → setup), but stays in the space you already opened. Does not open Cursor and does not create a new Herdr workspace.
+
+```sh
+# Inside Herdr, in a new space:
+ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] "Issue title"
+```
+
+| Flag | Description |
+| --- | --- |
+| `-c`, `--current` | Branch from the current branch (default: repo's default branch). |
+| `-b <branch>` | Use an existing branch instead of creating one. |
+| `-f`, `--fork` | Target the fork's own issue tracker instead of upstream (forks only). |
+| `-i <N>` | Develop an existing issue instead of creating a new one. |
+| `--no-agent` | Stop after the worktree (no agent). |
+
+What it does:
+
+1. Requires `HERDR_PANE_ID` — run it from inside Herdr, not a plain Ghostty window.
+2. Creates or reuses the issue, branch, and worktree at `~/.claude/worktrees/{repo}-{N}` (same as `ghsb` / `ghwt`).
+3. Runs `_worktree_setup`, `cd`s this shell into the worktree, and renames the current space to `{repo}-{N}`.
+4. Starts grok/claude in this pane once the shell is idle. If this pane already has an agent, it splits a sibling pane in the same space instead.
+5. Writes a `ghsb` session so `ghsb finish` still works when you are done.
+
+Source: `functions/ghi.zsh`.
+
 ### `ghsbpr` / `ghsb review` — PR review in Herdr
 
 Architecture A sibling of `ghwtpr`: checkout a PR, rank files for manual review, launch pr-review in **Herdr**, print links.
@@ -206,6 +233,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 └── functions/             # Custom zsh commands
     ├── ghsb.zsh
     ├── ghsbpr.zsh
+    ├── ghi.zsh
     ├── _ghsb_common.zsh
     ├── ghwt.zsh
     ├── ghwtb.zsh
