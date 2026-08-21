@@ -25,16 +25,16 @@ ghsb status|attach|links|list|rm [session-id]
 | --- | --- |
 | Ghostty | Terminal UI (unchanged) |
 | Herdr | Persistent agent panes (cockpit) |
-| Local worktree | Same `~/.claude/worktrees/{repo}-{N}` as `ghwt` |
+| Local worktree | Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}` |
 | Cloudflare Sandbox (`--cf`) | Remote clone + dev server + preview URL |
-| `ghsb finish` | PR → Playwright video (if UI) → pr-review → ranked files → links |
+| `ghsb finish` | PR → Playwright video (if UI) → ranked files → same-agent review → links |
 
 **Finish pipeline** (run after the agent pushes, or tell the agent to run it):
 
 1. Push branch and ensure a PR exists  
 2. Rank changed files for manual review (`~/.ghsb/artifacts/.../files-to-review.txt`)  
 3. If user-facing paths changed and a preview/dev URL exists → Playwright walkthrough video  
-4. Launch pr-review agent in Herdr (`/review-pr` or `/pr-review-toolkit:review-pr`)  
+4. Prompt the **same** grok/claude session to review (`/review-pr` or `/pr-review-toolkit:review-pr`) — no new Herdr space or agent  
 5. Print PR, github.dev, VS Code web, dev env, and PR preview links  
 
 ```sh
@@ -58,7 +58,7 @@ Source: `functions/ghsb.zsh`, `functions/_ghsb_common.zsh`, `scripts/ghsb-record
 
 ### `ghi` — issue + worktree in the current Herdr space
 
-Same checkout as `ghsb` (issue → branch → worktree → setup), but stays in the space you already opened. Does not open Cursor and does not create a new Herdr workspace.
+Same checkout as `ghsb` (issue → branch → Herdr worktree → setup), but the agent stays in the space you already opened. Does not open Cursor.
 
 ```sh
 # Inside Herdr, in a new space:
@@ -76,12 +76,32 @@ ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] "Issue title"
 What it does:
 
 1. Requires `HERDR_PANE_ID` — run it from inside Herdr, not a plain Ghostty window.
-2. Creates or reuses the issue, branch, and worktree at `~/.claude/worktrees/{repo}-{N}` (same as `ghsb` / `ghwt`).
+2. Creates or reuses the issue, branch, and Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}` (same as `ghsb` / `ghwt`).
 3. Runs `_worktree_setup`, `cd`s this shell into the worktree, and renames the current space to `{repo}-{N}`.
-4. Starts grok/claude in this pane once the shell is idle. If this pane already has an agent, it splits a sibling pane in the same space instead.
+4. Starts grok/claude in this pane once the shell is idle. If this pane already has an agent, the prompt goes to that agent (same space).
 5. Writes a `ghsb` session so `ghsb finish` still works when you are done.
 
 Source: `functions/ghi.zsh`.
+
+### `ghipr` / `ghi review` — PR review in the current Herdr space
+
+Same checkout as `ghsbpr` (PR Herdr worktree + ranked files + review prompt), but the review agent stays in the space you already opened. Does not open Cursor.
+
+```sh
+# Inside Herdr, in a new space:
+ghipr <pr-number>
+ghi review <pr-number>   # same
+ghipr --no-agent 42      # checkout + rank files only
+```
+
+What it does:
+
+1. Requires `HERDR_PANE_ID` — run it from inside Herdr.
+2. Checks out the PR into a Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}` (same as `ghsbpr` / `ghwtpr`), including fork PRs via `gh pr checkout`.
+3. Ranks changed files, writes a review session, `cd`s this shell into the worktree, and renames the current space to `{repo}-pr-{N}`.
+4. Starts grok/claude with `/review-pr` (or `/pr-review-toolkit:review-pr`) in this pane once the shell is idle. If this pane already has an agent, the review prompt goes to that agent (same space).
+
+Source: `functions/ghipr.zsh`.
 
 ### `ghsbpr` / `ghsb review` — PR review in Herdr
 
@@ -114,11 +134,50 @@ What it does:
 1. Detects whether you're in a fork (compares `origin` URL with what `gh` resolves) and routes issue creation to the upstream repo if so. Pass `-f`/`--fork` to instead create/reuse issues on the fork itself; `-i <N>` then resolves against whichever target is in effect.
 2. Fetches all remote refs.
 3. Creates the issue (or reuses `-i <N>`) and creates the branch — via `gh issue develop` for direct repos, or manually for forks.
-4. Creates a worktree at `~/.claude/worktrees/{repo}-{issue-number}`.
+4. Creates a Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}` (grouped under the repo in the Herdr sidebar). Existing `~/.claude/worktrees/{repo}-{N}` checkouts are reused and opened as Herdr worktrees.
 5. Runs `_worktree_setup` — executes `."setup-worktree"[]` from `.cursor/worktrees.json` if present, otherwise copies `.env.local`, `.dev.vars`, and `local.db` if they exist.
 6. Calls `splt` (opens Cursor at the worktree, tiles left, shows the PICK ME banner), then launches `claude --permission-mode plan "Implement GitHub issue #N..."` in a new tmux window if `$TMUX` is set, otherwise in the current terminal.
 
 Source: `functions/ghwt.zsh`.
+
+### `ghwtv` — GitHub issue + worktree + tode in Herdr
+
+Same issue → branch → worktree as `ghwt`, but opens **tode** in a Herdr split instead of Cursor.
+
+```sh
+ghwtv [-c] [-f] [-b <branch>] [-i <number>] "Issue title"
+ghwtv -e <number>
+```
+
+Detection: `HERDR_ENV=1` plus `HERDR_PANE_ID` means you are already inside Herdr.
+
+| Where you run it | What happens |
+| --- | --- |
+| Inside Herdr | Splits this pane, opens tode on the left (or top if the pane is tall), starts grok/claude in this pane once the shell is idle. |
+| Outside Herdr | Creates a Herdr workspace at the worktree, same split + agent, prints `herdr` so you can attach. |
+
+Source: `functions/ghwtv.zsh`.
+
+### `ghwtprv` — GitHub PR review + herdr-reviewr in Herdr
+
+Same PR checkout as `ghwtpr` (fork-aware `gh pr checkout` into a Herdr worktree), but opens **[herdr-reviewr](https://github.com/persiyanov/herdr-reviewr)** in a Herdr split instead of Cursor.
+
+```sh
+ghwtprv [-i] <pr-number>
+```
+
+Detection: `HERDR_ENV=1` plus `HERDR_PANE_ID` means you are already inside Herdr.
+
+| Where you run it | What happens |
+| --- | --- |
+| Inside Herdr | Opens reviewr in a right split on this pane (cwd = PR worktree), starts grok/claude with `/review-pr` in this pane once the shell is idle. |
+| Outside Herdr | Creates a Herdr workspace at the worktree, same split + agent, prints `herdr` so you can attach. |
+
+Needs the plugin once: `herdr plugin install persiyanov/herdr-reviewr`.
+
+In reviewr: `u`/`b`/`t` switch uncommitted / branch / last-turn; `3` is the PR tab; `s` sends line comments to the agent.
+
+Source: `functions/ghwtprv.zsh`.
 
 ### `ghwtrm` — remove a `ghwt` worktree
 
@@ -126,7 +185,7 @@ Source: `functions/ghwt.zsh`.
 ghwtrm [<issue-number>]
 ```
 
-Removes the worktree at `~/.claude/worktrees/{repo}-{N}` and prunes the branch metadata. With no argument it auto-detects the issue number by parsing the current working directory, so you can just run `ghwtrm` from inside the worktree you want to clean up.
+Removes the Herdr worktree (`herdr worktree remove`) for that issue. With no argument it targets the current linked worktree, so you can just run `ghwtrm` from inside the checkout you want to clean up. Legacy `~/.claude/worktrees/{repo}-{N}` paths still resolve.
 
 Source: `functions/ghwtrm.zsh`.
 
@@ -136,7 +195,7 @@ Source: `functions/ghwtrm.zsh`.
 ghwtb [-c] [-b <branch>] [<branch-name-or-description>]
 ```
 
-Same worktree + Cursor + Claude/Grok flow as `ghwt`, but skips GitHub issue creation. Creates a new branch (or reuses an existing one), checks it out at `~/.claude/worktrees/{repo}-{sanitised-branch}`, and launches the AI agent. Pass a description with spaces to auto-slugify the branch name (e.g. `"Add dark mode"` → `add-dark-mode`).
+Same worktree + Cursor + Claude/Grok flow as `ghwt`, but skips GitHub issue creation. Creates a new branch (or reuses an existing one), checks it out as a Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}`, and launches the AI agent. Pass a description with spaces to auto-slugify the branch name (e.g. `"Add dark mode"` → `add-dark-mode`).
 
 | Flag | Description |
 | --- | --- |
@@ -151,7 +210,7 @@ Source: `functions/ghwtb.zsh`.
 wt <branch-name>
 ```
 
-Same worktree + Cursor + Claude flow as `ghwt`, but for a branch that isn't tied to a GitHub issue. Fetches the branch from `origin` if it isn't local, sanitises slashes and other shell-unfriendly characters, and creates a worktree at `~/.claude/worktrees/{repo}-{sanitised-branch}`.
+Same worktree + Cursor + Claude flow as `ghwt`, but for a branch that isn't tied to a GitHub issue. Fetches the branch from `origin` if it isn't local, sanitises slashes and other shell-unfriendly characters, and creates a Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}`.
 
 Source: `functions/wt.zsh`.
 
@@ -234,8 +293,11 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
     ├── ghsb.zsh
     ├── ghsbpr.zsh
     ├── ghi.zsh
+    ├── ghipr.zsh
     ├── _ghsb_common.zsh
     ├── ghwt.zsh
+    ├── ghwtv.zsh
+    ├── ghwtprv.zsh
     ├── ghwtb.zsh
     ├── ghwtpr.zsh
     ├── ghwtrm.zsh
@@ -250,5 +312,5 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 
 - macOS only — uses `xcode-select`, `pmset`, `osascript`, `pinentry-mac` and `/opt/homebrew` paths.
 - `bootstrap.sh` calls `sudo pmset` to keep the machine awake. Remove that block if you don't want always-on power management.
-- `ghwt`, `ghwtb`, and `wt` assume Claude Code is installed and on `PATH` (`bootstrap.sh` installs it). Worktrees live under `~/.claude/worktrees/`.
+- `ghwt`, `ghwtv`, `ghwtprv`, `ghwtb`, and `wt` assume Claude Code is installed and on `PATH` (`bootstrap.sh` installs it). New worktrees are Herdr worktrees under `~/.herdr/worktrees/{repo}/{branch-slug}` (legacy `~/.claude/worktrees/{repo}-{N}` checkouts are still opened). `ghwtv` also needs `tode` and `herdr` on `PATH`. `ghwtprv` needs `herdr` and the `persiyanov.reviewr` plugin (`herdr plugin install persiyanov/herdr-reviewr`).
 - If you fork this repo, prune `Brewfile` and skip the steps in `bootstrap.sh` you don't want (Vercel, Wrangler, OpenCode, Grok, GPG key generation, etc.).

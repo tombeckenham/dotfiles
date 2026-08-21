@@ -1,10 +1,10 @@
-# Remove a worktree created by ghwt
+# Remove a worktree created by ghwt / ghsb / wt
 # Usage: ghwtrm [-i] [<issue-number>]
-#   If no issue number is given and cwd is inside a ghwt worktree, removes it.
+#   If no issue number is given and cwd is inside a worktree, removes it.
 ghwtrm() {
   if [[ "$1" == "-h" || "$1" == "--help" ]]; then
     echo "Usage: ghwtrm [-i] [<issue-number>]"
-    echo "  Remove a worktree created by ghwt for the given issue"
+    echo "  Remove a Herdr worktree created for the given issue"
     echo "  If no issue number is given, targets the current worktree"
     echo "  -i, --issue  Optional flag before issue number (e.g. ghwtrm -i 42)"
     return 0
@@ -21,53 +21,68 @@ ghwtrm() {
     issue_number="$1"
   fi
 
-  # If no issue number provided, try to detect from current worktree path
-  if [[ -z "$issue_number" ]]; then
-    local cwd="$PWD"
-    if [[ "$cwd" == "$HOME/.claude/worktrees/"* ]]; then
-      local worktree_dir="${cwd#$HOME/.claude/worktrees/}"
-      worktree_dir="${worktree_dir%%/*}"
-      issue_number="${worktree_dir##*-}"
+  local repo_root
+  repo_root=$(_ghsb_repo_root) || {
+    echo "Error: Not in a git repository"
+    return 1
+  }
+
+  local wt_path="" ws=""
+  if [[ -n "$issue_number" ]]; then
+    if ! [[ "$issue_number" =~ ^[0-9]+$ ]]; then
+      echo "Error: Issue number must be numeric"
+      return 1
     fi
-    if [[ -z "$issue_number" ]]; then
-      echo "Error: No issue number given and not inside a ghwt worktree"
+    local hit rest
+    hit=$(_ghsb_herdr_wt_find_issue "$repo_root" "$issue_number") || hit=""
+    if [[ -z "$hit" ]]; then
+      echo "Error: No worktree found for issue #${issue_number}"
+      return 1
+    fi
+    wt_path=${hit%%$'\t'*}
+    rest=${hit#*$'\t'}
+    ws=${rest%%$'\t'*}
+  else
+    local listing
+    listing=$(_ghsb_herdr_wt_list "$repo_root") || listing=""
+    local hit
+    hit=$(printf '%s\n' "$listing" | jq -r --arg p "$PWD" '
+      .result.worktrees[]
+      | select(.is_linked_worktree == true and ($p | startswith(.path)))
+      | "\(.path)\t\(.open_workspace_id // "")"
+    ' | head -1)
+    if [[ -z "$hit" && "$PWD" == "$HOME/.claude/worktrees/"* ]]; then
+      local worktree_dir
+      worktree_dir="${PWD#$HOME/.claude/worktrees/}"
+      worktree_dir="${worktree_dir%%/*}"
+      wt_path="$HOME/.claude/worktrees/${worktree_dir}"
+    fi
+    if [[ -n "$hit" ]]; then
+      wt_path=${hit%%$'\t'*}
+      ws=${hit#*$'\t'}
+    fi
+    if [[ -z "$wt_path" ]]; then
+      echo "Error: No issue number given and not inside a linked worktree"
       return 1
     fi
   fi
 
-  if ! [[ "$issue_number" =~ ^[0-9]+$ ]]; then
-    echo "Error: Issue number must be numeric"
-    return 1
-  fi
-
-  local repo_name
-  repo_name=$(basename "$(git config --get remote.origin.url 2>/dev/null | sed 's/\.git$//')")
-  if [[ -z "$repo_name" ]]; then
-    echo "Error: Not in a git repository"
-    return 1
-  fi
-
-  local worktree_path="$HOME/.claude/worktrees/${repo_name}-${issue_number}"
-
-  if [[ ! -d "$worktree_path" ]]; then
-    echo "Error: No worktree found at $worktree_path"
-    return 1
-  fi
-
-  # If we're inside the worktree being removed, cd out first
-  if [[ "$PWD" == "$worktree_path"* ]]; then
-    local repo_root
-    repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+  if [[ "$PWD" == "$wt_path"* ]]; then
     cd "$repo_root"
   fi
 
-  git worktree remove "$worktree_path" --force 2>/dev/null || git worktree remove "$worktree_path"
-  if [[ $? -ne 0 ]]; then
-    echo "Failed to remove worktree. Close any open files in Cursor and try again."
-    return 1
+  if [[ -n "$ws" && "$ws" != "null" ]]; then
+    herdr worktree remove --workspace "$ws" --force 2>&1 || {
+      echo "Failed to remove Herdr worktree $ws"
+      return 1
+    }
+  else
+    if ! git worktree remove "$wt_path" --force 2>/dev/null && ! git worktree remove "$wt_path"; then
+      echo "Failed to remove worktree. Close any open files and try again."
+      return 1
+    fi
+    [[ -d "$wt_path" ]] && rm -rf "$wt_path"
   fi
 
-  [[ -d "$worktree_path" ]] && rm -rf "$worktree_path"
-
-  echo "Removed worktree: $worktree_path"
+  echo "Removed worktree: $wt_path"
 }

@@ -119,14 +119,17 @@ ghwt() {
       return 1
     fi
 
-    local repo_root repo_name worktree_path
-    repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+    local repo_root repo_name worktree_path found_branch=""
+    repo_root=$(_ghsb_repo_root)
     repo_name=$(basename "$repo_root")
-    worktree_path="$HOME/.claude/worktrees/${repo_name}-${issue_number}"
-
-    if [[ ! -d "$worktree_path" ]]; then
-      # No worktree yet — find a branch matching "<issue>-<slug>" locally first, then on origin
-      local found_branch=""
+    local hit rest ws
+    hit=$(_ghsb_herdr_wt_find_issue "$repo_root" "$issue_number") || hit=""
+    if [[ -n "$hit" ]]; then
+      worktree_path=${hit%%$'\t'*}
+      rest=${hit#*$'\t'}
+      found_branch=${rest#*$'\t'}
+    fi
+    if [[ -z "$found_branch" ]]; then
       found_branch=$(git for-each-ref --format='%(refname:short)' "refs/heads/${issue_number}-*" 2>/dev/null | head -1)
       if [[ -z "$found_branch" ]]; then
         git fetch origin 2>/dev/null
@@ -134,22 +137,15 @@ ghwt() {
           | grep -E "refs/heads/${issue_number}-[a-z0-9-]+$" \
           | head -1 | sed 's#.*refs/heads/##')
       fi
-
-      if [[ -z "$found_branch" ]]; then
-        echo "No existing branch found for issue #${issue_number}"
-        return 1
-      fi
-
-      echo "Found branch: $found_branch"
-      git fetch origin "$found_branch" 2>/dev/null
-
-      mkdir -p ~/.claude/worktrees
-      git worktree add "$worktree_path" "$found_branch" || return 1
-      echo "Worktree created at: $worktree_path"
-      _worktree_setup "$worktree_path"
-    else
-      echo "Found existing worktree at: $worktree_path"
     fi
+    if [[ -z "$found_branch" ]]; then
+      echo "No existing branch found for issue #${issue_number}"
+      return 1
+    fi
+    echo "Found branch: $found_branch"
+    git fetch origin "$found_branch" 2>/dev/null
+    _ghsb_herdr_wt_ensure_branch "$repo_root" "$found_branch" "${repo_name}-${issue_number}" || return 1
+    worktree_path="${GHSB_HERDR_WT[path]}"
 
     # A/B: choose grok or claude deterministically per ticket (issue/PR mod 2; fallback mod of datetime)
     local selector="${issue_number}"
@@ -334,23 +330,11 @@ ghwt() {
     echo "Using existing branch: $branch_name"
   fi
 
-  # Ensure worktrees directory exists
-  mkdir -p ~/.claude/worktrees
-
-  # Resolve main repo root (works from both main checkout and linked worktrees)
-  local repo_root
-  repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-  local repo_name
+  local repo_root repo_name worktree_path
+  repo_root=$(_ghsb_repo_root)
   repo_name=$(basename "$repo_root")
-  local worktree_path="$HOME/.claude/worktrees/${repo_name}-${issue_number}"
-
-  # Create the worktree
-  git worktree add "$worktree_path" "$branch_name"
-
-  echo "Worktree created at: $worktree_path"
-
-  # Run worktree setup
-  _worktree_setup "$worktree_path"
+  _ghsb_herdr_wt_ensure_branch "$repo_root" "$branch_name" "${repo_name}-${issue_number}" || return 1
+  worktree_path="${GHSB_HERDR_WT[path]}"
 
   # A/B: choose grok or claude deterministically per ticket (issue/PR mod 2; fallback mod of datetime)
   local selector="${issue_number}"

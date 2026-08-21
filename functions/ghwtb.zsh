@@ -19,8 +19,8 @@ ghwtb() {
         echo "  -c, --current   Branch from current branch instead of default"
         echo "  -h, --help      Show this help"
         echo ""
-        echo "Creates a new branch and worktree without opening a GitHub issue."
-        echo "Worktrees live at ~/.claude/worktrees/{repo}-{sanitised-branch}."
+        echo "Creates a new branch and Herdr worktree without opening a GitHub issue."
+        echo "Worktrees live at ~/.herdr/worktrees/{repo}/{branch-slug}."
         return 0
         ;;
       *)
@@ -114,21 +114,12 @@ ghwtb() {
     echo "Using existing branch: $branch_name"
   fi
 
-  mkdir -p ~/.claude/worktrees
-
   local repo_root repo_name sanitized_branch_name worktree_path
-  repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+  repo_root=$(_ghsb_repo_root)
   repo_name=$(basename "$repo_root")
-  sanitized_branch_name=$(echo "$branch_name" | sed 's/[\/<>:"|?*]/-/g')
-  worktree_path="$HOME/.claude/worktrees/${repo_name}-${sanitized_branch_name}"
-
-  if [[ -d "$worktree_path" ]]; then
-    echo "Worktree already exists at: $worktree_path"
-  else
-    git worktree add "$worktree_path" "$branch_name" || return 1
-    echo "Worktree created at: $worktree_path"
-    _worktree_setup "$worktree_path"
-  fi
+  sanitized_branch_name=$(_ghsb_herdr_branch_slug "$branch_name")
+  _ghsb_herdr_wt_ensure_branch "$repo_root" "$branch_name" "${repo_name}-${sanitized_branch_name}" || return 1
+  worktree_path="${GHSB_HERDR_WT[path]}"
 
   local selector="${#branch_name}"
   local ai_tool="claude"

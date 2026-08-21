@@ -93,7 +93,8 @@ _ghsb_resolve_session_id() {
     fi
   fi
 
-  # Infer from worktree path ~/.claude/worktrees/{repo}-{issue}
+  # Infer from worktree path (legacy ~/.claude/worktrees/{repo}-{issue}
+  # or Herdr ~/.herdr/worktrees/{repo}/{branch-slug}).
   local cwd="$PWD"
   if [[ "$cwd" == *'/.claude/worktrees/'* ]]; then
     local leaf
@@ -102,6 +103,29 @@ _ghsb_resolve_session_id() {
       echo "$leaf"
       return 0
     fi
+  fi
+  if [[ "$cwd" == "$HOME/.herdr/worktrees/"* ]]; then
+    local repo leaf sid
+    repo=$(basename "$(dirname "$cwd")")
+    leaf=$(basename "$cwd")
+    if [[ "$leaf" =~ ^([0-9]+) ]]; then
+      sid="${repo}-${match[1]}"
+      if [[ -f "$(_ghsb_session_path "$sid")" ]]; then
+        echo "$sid"
+        return 0
+      fi
+    fi
+  fi
+  if [[ -d "$GHSB_SESSIONS_DIR" ]]; then
+    local sess
+    for sess in "$GHSB_SESSIONS_DIR"/*.json(N); do
+      local sess_wt
+      sess_wt=$(jq -r '.worktree // empty' "$sess" 2>/dev/null) || continue
+      if [[ -n "$sess_wt" && "$cwd" == "$sess_wt"* ]]; then
+        basename "$sess" .json
+        return 0
+      fi
+    done
   fi
 
   # Newest session
@@ -119,9 +143,225 @@ _ghsb_ensure_herdr() {
     echo "Error: herdr not found. Install: curl -fsSL https://herdr.dev/install.sh | sh"
     return 1
   fi
-  # Server may already be up; status is non-fatal if client-only
-  herdr status >/dev/null 2>&1 || true
+  if ! herdr workspace list >/dev/null 2>&1; then
+    echo "Error: Herdr server is not running. Start it with: herdr"
+    return 1
+  fi
   return 0
+}
+
+_ghsb_repo_root() {
+  dirname "$(git rev-parse --path-format=absolute --git-common-dir)"
+}
+
+_ghsb_herdr_branch_slug() {
+  echo "$1" | sed 's/[\/<>:"|?*]/-/g'
+}
+
+_ghsb_herdr_worktrees_root() {
+  echo "${HERDR_WORKTREES_DIR:-$HOME/.herdr/worktrees}"
+}
+
+typeset -gA GHSB_HERDR_WT
+
+_ghsb_herdr_wt_parse() {
+  local json="$1"
+  GHSB_HERDR_WT[workspace_id]=$(printf '%s\n' "$json" | jq -r '.result.workspace.workspace_id // empty')
+  GHSB_HERDR_WT[pane_id]=$(printf '%s\n' "$json" | jq -r '.result.root_pane.pane_id // empty')
+  GHSB_HERDR_WT[path]=$(printf '%s\n' "$json" | jq -r \
+    '.result.workspace.worktree.checkout_path // .result.worktree.path // empty')
+  if [[ -z "${GHSB_HERDR_WT[pane_id]}" && -n "${GHSB_HERDR_WT[workspace_id]}" ]]; then
+    GHSB_HERDR_WT[pane_id]=$(herdr pane list --workspace "${GHSB_HERDR_WT[workspace_id]}" 2>/dev/null \
+      | jq -r '.result.panes[0].pane_id // empty')
+  fi
+}
+
+_ghsb_herdr_wt_from_open_id() {
+  local ws="$1" wt_path="$2"
+  GHSB_HERDR_WT[workspace_id]="$ws"
+  GHSB_HERDR_WT[path]="$wt_path"
+  GHSB_HERDR_WT[pane_id]=$(herdr pane list --workspace "$ws" 2>/dev/null \
+    | jq -r '.result.panes[0].pane_id // empty')
+}
+
+_ghsb_herdr_wt_list() {
+  command -v herdr >/dev/null 2>&1 || return 1
+  herdr worktree list --cwd "$1" 2>/dev/null
+}
+
+# Existing git worktree path for a local branch, any location.
+_ghsb_git_wt_find_branch() {
+  local repo_root="$1" branch="$2"
+  local line wt_path="" want="branch refs/heads/${branch}"
+  while IFS= read -r line; do
+    if [[ "$line" == worktree\ * ]]; then
+      wt_path="${line#worktree }"
+    elif [[ "$line" == "$want" ]]; then
+      printf '%s\n' "$wt_path"
+      return 0
+    fi
+  done < <(git -C "$repo_root" worktree list --porcelain 2>/dev/null)
+  return 1
+}
+
+_ghsb_git_wt_path_from_create_error() {
+  printf '%s\n' "$1" | sed -n "s/.*already used by worktree at ['\"]\\([^'\"]*\\)['\"].*/\\1/p" | head -1
+}
+
+# Prints: path<TAB>workspace_id<TAB>branch   (workspace_id/branch may be empty)
+_ghsb_herdr_wt_find_branch() {
+  local repo_root="$1" branch="$2"
+  local listing
+  listing=$(_ghsb_herdr_wt_list "$repo_root") || return 1
+  printf '%s\n' "$listing" | jq -r --arg b "$branch" '
+    .result.worktrees[]
+    | select(.is_linked_worktree == true and .branch == $b)
+    | "\(.path)\t\(.open_workspace_id // "")\t\(.branch // "")"
+  ' | head -1
+}
+
+# Linked Herdr worktree whose branch starts with "<issue>-", else legacy Claude path.
+_ghsb_herdr_wt_find_issue() {
+  local repo_root="$1" issue="$2"
+  local listing hit
+  listing=$(_ghsb_herdr_wt_list "$repo_root") || listing=""
+  hit=$(printf '%s\n' "$listing" | jq -r --arg p "^${issue}-" '
+    .result.worktrees[]
+    | select(.is_linked_worktree == true and ((.branch // "") | test($p)))
+    | "\(.path)\t\(.open_workspace_id // "")\t\(.branch // "")"
+  ' | head -1)
+  if [[ -n "$hit" ]]; then
+    printf '%s\n' "$hit"
+    return 0
+  fi
+  local repo_name worktree_path
+  repo_name=$(basename "$repo_root")
+  worktree_path="$HOME/.claude/worktrees/${repo_name}-${issue}"
+  if [[ -d "$worktree_path" ]]; then
+    printf '%s\t\t\n' "$worktree_path"
+    return 0
+  fi
+  local line git_path="" prefix="branch refs/heads/${issue}-"
+  while IFS= read -r line; do
+    if [[ "$line" == worktree\ * ]]; then
+      git_path="${line#worktree }"
+    elif [[ "$line" == "$prefix"* ]]; then
+      printf '%s\t\t\n' "$git_path"
+      return 0
+    fi
+  done < <(git -C "$repo_root" worktree list --porcelain 2>/dev/null)
+  return 1
+}
+
+# Best-effort: open an existing git checkout as a Herdr worktree workspace.
+# Always sets GHSB_HERDR_WT[path]. Herdr registration is optional so Cursor
+# commands still work outside a Herdr TUI / if `herdr` is not on PATH.
+_ghsb_herdr_wt_register_path() {
+  local repo_root="$1" wt_path="$2" label="$3"
+  GHSB_HERDR_WT[path]="$wt_path"
+  command -v herdr >/dev/null 2>&1 || return 0
+  herdr workspace list >/dev/null 2>&1 || return 0
+  local listing ws
+  listing=$(_ghsb_herdr_wt_list "$repo_root") || listing=""
+  ws=$(printf '%s\n' "$listing" | jq -r --arg p "$wt_path" '
+    .result.worktrees[] | select(.path == $p) | .open_workspace_id // empty
+  ' | head -1)
+  if [[ -n "$ws" && "$ws" != "null" ]]; then
+    _ghsb_herdr_wt_from_open_id "$ws" "$wt_path"
+    return 0
+  fi
+  local out
+  out=$(herdr worktree open --cwd "$repo_root" --path "$wt_path" --label "$label" --no-focus 2>&1) || {
+    echo "herdr worktree open skipped: $out" >&2
+    GHSB_HERDR_WT[path]="$wt_path"
+    return 0
+  }
+  _ghsb_herdr_wt_parse "$out"
+  [[ -n "${GHSB_HERDR_WT[path]}" ]] || GHSB_HERDR_WT[path]="$wt_path"
+}
+
+# Create or open a worktree for an existing local branch.
+# Prefers Herdr when the server is up; reuses any existing git checkout
+# (including ~/.claude/worktrees) so a second create cannot fail.
+# Usage: _ghsb_herdr_wt_ensure_branch <repo_root> <branch> <label>
+_ghsb_herdr_wt_ensure_branch() {
+  local repo_root="$1" branch="$2" label="$3"
+  GHSB_HERDR_WT=()
+
+  local wt_path ws found
+  wt_path=$(_ghsb_git_wt_find_branch "$repo_root" "$branch")
+  if [[ -z "$wt_path" ]]; then
+    found=$(_ghsb_herdr_wt_find_branch "$repo_root" "$branch") || found=""
+    if [[ -n "$found" ]]; then
+      wt_path=${found%%$'\t'*}
+      ws=${found#*$'\t'}; ws=${ws%%$'\t'*}
+    fi
+  fi
+  if [[ -z "$wt_path" ]]; then
+    local legacy
+    legacy="$HOME/.claude/worktrees/${label}"
+    [[ -d "$legacy" ]] && wt_path="$legacy"
+  fi
+  if [[ -n "$wt_path" ]]; then
+    echo "Worktree already exists at: $wt_path"
+    if [[ -n "$ws" && "$ws" != "null" ]]; then
+      _ghsb_herdr_wt_from_open_id "$ws" "$wt_path"
+    else
+      _ghsb_herdr_wt_register_path "$repo_root" "$wt_path" "$label"
+    fi
+    GHSB_HERDR_WT[path]="${GHSB_HERDR_WT[path]:-$wt_path}"
+    return 0
+  fi
+
+  if ! git -C "$repo_root" show-ref --verify --quiet "refs/heads/${branch}"; then
+    git -C "$repo_root" branch --track "$branch" "origin/${branch}" 2>/dev/null \
+      || git -C "$repo_root" fetch origin "${branch}:${branch}" 2>/dev/null \
+      || true
+  fi
+
+  local herdr_up=0
+  if command -v herdr >/dev/null 2>&1 && herdr workspace list >/dev/null 2>&1; then
+    herdr_up=1
+  fi
+
+  if (( herdr_up )); then
+    local out
+    out=$(herdr worktree create --cwd "$repo_root" --branch "$branch" --label "$label" --no-focus 2>&1) || {
+      wt_path=$(_ghsb_git_wt_path_from_create_error "$out")
+      if [[ -n "$wt_path" && -d "$wt_path" ]]; then
+        echo "Worktree already exists at: $wt_path"
+        _ghsb_herdr_wt_register_path "$repo_root" "$wt_path" "$label"
+        return 0
+      fi
+      echo "herdr worktree create failed: $out" >&2
+      return 1
+    }
+    _ghsb_herdr_wt_parse "$out"
+    if [[ -z "${GHSB_HERDR_WT[path]}" ]]; then
+      echo "Could not parse herdr worktree create:" >&2
+      echo "$out" >&2
+      return 1
+    fi
+    echo "Worktree created at: ${GHSB_HERDR_WT[path]}"
+    _worktree_setup "${GHSB_HERDR_WT[path]}"
+    return 0
+  fi
+
+  local repo_name slug herdr_path
+  repo_name=$(basename "$repo_root")
+  slug=$(_ghsb_herdr_branch_slug "$branch")
+  herdr_path="$(_ghsb_herdr_worktrees_root)/${repo_name}/${slug}"
+  mkdir -p "$(dirname "$herdr_path")"
+  git -C "$repo_root" worktree add "$herdr_path" "$branch" || return 1
+  echo "Worktree created at: $herdr_path"
+  _worktree_setup "$herdr_path"
+  GHSB_HERDR_WT[path]="$herdr_path"
+}
+
+_ghsb_herdr_wt_apply_checkout() {
+  GHSB_CHECKOUT[worktree]="${GHSB_HERDR_WT[path]}"
+  GHSB_CHECKOUT[herdr_workspace]="${GHSB_HERDR_WT[workspace_id]}"
+  GHSB_CHECKOUT[herdr_pane]="${GHSB_HERDR_WT[pane_id]}"
 }
 
 # Wait until a pane's foreground process is an interactive shell.
@@ -373,7 +613,8 @@ _ghsb_herdr_launch_in_pane() {
 }
 
 # Canonical Herdr recipe (docs + live-verified on herdr 0.8.0):
-#   1. workspace create --cwd … --label … --no-focus
+#   1. worktree create/open (checkout) — reuse GHSB_CHECKOUT[herdr_pane]
+#      else workspace create --cwd … --label … --no-focus
 #   2. pane_id = .result.root_pane.pane_id
 #   3. wait until process-info shows shell in foreground
 #   4. agent start <name> --kind <kind> --pane <pane_id> -- <agent-flags…>
@@ -389,7 +630,15 @@ _ghsb_herdr_launch() {
   local label="$1" worktree="$2" ai_tool="$3" prompt="$4"
   _ghsb_ensure_herdr || return 1
 
-  local created pane_id workspace_id
+  local pane_id workspace_id
+  pane_id="${GHSB_CHECKOUT[herdr_pane]:-}"
+  workspace_id="${GHSB_CHECKOUT[herdr_workspace]:-}"
+  if [[ -n "$pane_id" && -n "$workspace_id" ]]; then
+    _ghsb_herdr_launch_in_pane "$pane_id" "$workspace_id" "$label" "$worktree" "$ai_tool" "$prompt"
+    return $?
+  fi
+
+  local created
   # Do not invent IDs — capture JSON from create (herdr docs).
   created=$(herdr workspace create --cwd "$worktree" --label "$label" --no-focus 2>&1)
   if [[ $? -ne 0 ]]; then
@@ -594,25 +843,17 @@ _ghsb_checkout_issue() {
     echo "Using existing branch: $branch_name"
   fi
 
-  mkdir -p ~/.claude/worktrees
-  local repo_root repo_name worktree_path session_id origin_repo
-  repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+  local repo_root repo_name session_id origin_repo
+  repo_root=$(_ghsb_repo_root)
   repo_name=$(basename "$repo_root")
-  worktree_path="$HOME/.claude/worktrees/${repo_name}-${issue_number}"
   session_id="${repo_name}-${issue_number}"
   origin_repo=$(git remote get-url origin 2>/dev/null | sed 's#.*github\.com[/:]##; s#\.git$##')
 
-  if [[ -d "$worktree_path" ]]; then
-    echo "Worktree already exists at: $worktree_path"
-  else
-    git worktree add "$worktree_path" "$branch_name" || return 1
-    echo "Worktree created at: $worktree_path"
-    _worktree_setup "$worktree_path"
-  fi
+  _ghsb_herdr_wt_ensure_branch "$repo_root" "$branch_name" "${repo_name}-${issue_number}" || return 1
+  _ghsb_herdr_wt_apply_checkout
 
   GHSB_CHECKOUT[issue]="$issue_number"
   GHSB_CHECKOUT[branch]="$branch_name"
-  GHSB_CHECKOUT[worktree]="$worktree_path"
   GHSB_CHECKOUT[session_id]="$session_id"
   GHSB_CHECKOUT[repo]="$issue_repo"
   GHSB_CHECKOUT[origin]="$origin_repo"
@@ -620,9 +861,337 @@ _ghsb_checkout_issue() {
   return 0
 }
 
+# PR → worktree (gh pr checkout) → _worktree_setup → freshness.
+# Writes results to GHSB_CHECKOUT. Shared by ghsbpr and ghipr.
+# Usage: _ghsb_checkout_pr <pr-number>
+_ghsb_checkout_pr() {
+  local pr_number="$1"
+  GHSB_CHECKOUT=()
+
+  if [[ -z "$pr_number" || ! "$pr_number" =~ ^[0-9]+$ ]]; then
+    echo "Error: PR number must be numeric"
+    return 1
+  fi
+
+  local is_fork=false upstream_repo="" fork_repo=""
+  local detect
+  detect=$(_ghsb_detect_repo)
+  is_fork=${detect%%$'\t'*}
+  fork_repo=${detect#*$'\t'}; fork_repo=${fork_repo%%$'\t'*}
+  upstream_repo=${detect##*$'\t'}
+  [[ "$is_fork" == "true" ]] && echo "Detected fork of $upstream_repo"
+
+  local -a repo_args=()
+  [[ "$is_fork" == "true" ]] && repo_args=(-R "$upstream_repo")
+
+  local pr_data
+  pr_data=$(gh pr view "${repo_args[@]}" "$pr_number" \
+    --json headRefName,baseRefName,isCrossRepository,maintainerCanModify,mergeable,mergeStateStatus,createdAt,updatedAt,headRepositoryOwner,url,title 2>&1)
+  if [[ $? -ne 0 ]]; then
+    echo "Failed to fetch PR info: $pr_data"
+    return 1
+  fi
+
+  local head_ref base_ref is_cross can_modify mergeable merge_state created_at updated_at fork_owner pr_url pr_title
+  head_ref=$(echo "$pr_data" | jq -r '.headRefName')
+  base_ref=$(echo "$pr_data" | jq -r '.baseRefName')
+  is_cross=$(echo "$pr_data" | jq -r '.isCrossRepository')
+  can_modify=$(echo "$pr_data" | jq -r '.maintainerCanModify')
+  mergeable=$(echo "$pr_data" | jq -r '.mergeable')
+  merge_state=$(echo "$pr_data" | jq -r '.mergeStateStatus')
+  created_at=$(echo "$pr_data" | jq -r '.createdAt')
+  updated_at=$(echo "$pr_data" | jq -r '.updatedAt')
+  fork_owner=$(echo "$pr_data" | jq -r '.headRepositoryOwner.login')
+  pr_url=$(echo "$pr_data" | jq -r '.url')
+  pr_title=$(echo "$pr_data" | jq -r '.title')
+
+  local local_branch="$head_ref"
+  if [[ "$is_cross" == "true" ]]; then
+    echo "PR #${pr_number} is from fork ${fork_owner} (cross-repo)"
+  fi
+
+  local repo_root repo_name worktree_path session_id issue_repo origin_repo
+  repo_root=$(_ghsb_repo_root)
+  repo_name=$(basename "$repo_root")
+  session_id="${repo_name}-pr-${pr_number}"
+  issue_repo="$upstream_repo"
+  origin_repo="$fork_repo"
+  [[ -z "$issue_repo" ]] && issue_repo="$origin_repo"
+
+  local slug found rest ws herdr_path legacy
+  slug=$(_ghsb_herdr_branch_slug "$head_ref")
+  herdr_path="$(_ghsb_herdr_worktrees_root)/${repo_name}/${slug}"
+  legacy="$HOME/.claude/worktrees/${repo_name}-${pr_number}"
+  GHSB_HERDR_WT=()
+  found=$(_ghsb_herdr_wt_find_branch "$repo_root" "$head_ref") || found=""
+  if [[ -n "$found" ]]; then
+    worktree_path=${found%%$'\t'*}
+    rest=${found#*$'\t'}
+    ws=${rest%%$'\t'*}
+    echo "Worktree already exists at: $worktree_path"
+    if [[ -n "$ws" && "$ws" != "null" ]]; then
+      _ghsb_herdr_wt_from_open_id "$ws" "$worktree_path"
+    else
+      _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
+    fi
+  elif [[ -d "$legacy" ]]; then
+    worktree_path="$legacy"
+    echo "Worktree already exists at: $worktree_path"
+    _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
+  elif [[ -d "$herdr_path" ]]; then
+    worktree_path="$herdr_path"
+    echo "Worktree already exists at: $worktree_path"
+    _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
+  else
+    if git show-ref --verify --quiet "refs/heads/${local_branch}"; then
+      echo "Error: local branch '${local_branch}' already exists but has no worktree."
+      echo "Delete it first (git branch -D ${local_branch}) or resolve manually."
+      return 1
+    fi
+
+    echo "Checking out PR #${pr_number} (branch '${local_branch}')..."
+    mkdir -p "$(dirname "$herdr_path")"
+    worktree_path="$herdr_path"
+    if ! git worktree add --detach "$worktree_path" >/dev/null; then
+      echo "Failed to create worktree"
+      return 1
+    fi
+
+    local -a checkout_args=("$pr_number")
+    [[ "$is_fork" == "true" ]] && checkout_args+=(-R "$upstream_repo")
+    if ! (cd "$worktree_path" && gh pr checkout "${checkout_args[@]}"); then
+      echo "Failed to check out PR #${pr_number}"
+      git worktree remove --force "$worktree_path" 2>/dev/null
+      git branch -D "$local_branch" 2>/dev/null
+      return 1
+    fi
+
+    if [[ "$is_cross" == "true" ]]; then
+      if [[ "$can_modify" == "true" ]]; then
+        echo "Maintainer edits allowed — pushes go back to ${fork_owner}'s fork."
+      else
+        echo "Note: maintainer edits are NOT allowed on this PR (read-only review)."
+      fi
+    fi
+
+    echo "Worktree created at: $worktree_path"
+    _worktree_setup "$worktree_path"
+    _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
+  fi
+  _ghsb_herdr_wt_apply_checkout
+
+  local base_fetch_source="origin" behind="?" ahead="?"
+  [[ "$is_fork" == "true" ]] && base_fetch_source="https://github.com/${upstream_repo}.git"
+  if git -C "$worktree_path" fetch "$base_fetch_source" "$base_ref" 2>/dev/null; then
+    behind=$(git -C "$worktree_path" rev-list --count HEAD..FETCH_HEAD 2>/dev/null)
+    ahead=$(git -C "$worktree_path" rev-list --count FETCH_HEAD..HEAD 2>/dev/null)
+  fi
+  echo "PR is ${behind} commit(s) behind ${base_ref}, ${ahead} ahead (mergeable: ${mergeable})"
+
+  local relevance_note
+  relevance_note="PR #${pr_number} freshness context for this review:
+- Title: ${pr_title}
+- Base branch: ${base_ref}
+- Behind ${base_ref} by: ${behind} commit(s)
+- Ahead of ${base_ref} by: ${ahead} commit(s)
+- Mergeable: ${mergeable} / merge state: ${merge_state}
+- From fork: ${is_cross} (owner: ${fork_owner}, maintainer edits: ${can_modify})
+- Opened: ${created_at}; last updated: ${updated_at}
+
+As part of the review, assess how relevant and current this PR still is. If it is
+significantly behind ${base_ref}, conflicting, or stale, flag it, explain whether
+the changes are still applicable to the current codebase, and recommend whether it
+needs a rebase or update before it can be merged."
+
+  GHSB_CHECKOUT[pr]="$pr_number"
+  GHSB_CHECKOUT[branch]="$head_ref"
+  GHSB_CHECKOUT[base]="$base_ref"
+  GHSB_CHECKOUT[worktree]="$worktree_path"
+  GHSB_CHECKOUT[session_id]="$session_id"
+  GHSB_CHECKOUT[repo]="$issue_repo"
+  GHSB_CHECKOUT[origin]="$origin_repo"
+  GHSB_CHECKOUT[is_fork]="$is_fork"
+  GHSB_CHECKOUT[is_cross]="$is_cross"
+  GHSB_CHECKOUT[can_modify]="$can_modify"
+  GHSB_CHECKOUT[mergeable]="$mergeable"
+  GHSB_CHECKOUT[merge_state]="$merge_state"
+  GHSB_CHECKOUT[created_at]="$created_at"
+  GHSB_CHECKOUT[updated_at]="$updated_at"
+  GHSB_CHECKOUT[fork_owner]="$fork_owner"
+  GHSB_CHECKOUT[pr_url]="$pr_url"
+  GHSB_CHECKOUT[pr_title]="$pr_title"
+  GHSB_CHECKOUT[behind]="$behind"
+  GHSB_CHECKOUT[ahead]="$ahead"
+  GHSB_CHECKOUT[relevance_note]="$relevance_note"
+  return 0
+}
+
+# Rank changed files + SUMMARY.md for a PR review. Requires GHSB_CHECKOUT from
+# _ghsb_checkout_pr. Sets GHSB_CHECKOUT[artifacts] and [preview_url].
+_ghsb_pr_write_artifacts() {
+  local worktree="${GHSB_CHECKOUT[worktree]}"
+  local session_id="${GHSB_CHECKOUT[session_id]}"
+  local base_ref="${GHSB_CHECKOUT[base]}"
+  local pr="${GHSB_CHECKOUT[pr]}"
+  local repo="${GHSB_CHECKOUT[repo]}"
+  local branch="${GHSB_CHECKOUT[branch]}"
+  local pr_title="${GHSB_CHECKOUT[pr_title]}"
+  local pr_url="${GHSB_CHECKOUT[pr_url]}"
+  local behind="${GHSB_CHECKOUT[behind]}"
+  local ahead="${GHSB_CHECKOUT[ahead]}"
+
+  local art
+  art="$GHSB_ARTIFACTS_DIR/${session_id}-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$art"
+
+  local base_ref_for_diff="FETCH_HEAD"
+  if git -C "$worktree" rev-parse --verify "origin/${base_ref}" >/dev/null 2>&1; then
+    base_ref_for_diff="origin/${base_ref}"
+  elif git -C "$worktree" rev-parse --verify "$base_ref" >/dev/null 2>&1; then
+    base_ref_for_diff="$base_ref"
+  fi
+  (
+    cd "$worktree" || exit 0
+    _ghsb_rank_files "$base_ref_for_diff" "$art/files-to-review.txt"
+  )
+  if [[ -s "$art/files-to-review.txt" ]]; then
+    echo ""
+    echo "Most relevant files to review manually (in order):"
+    head -20 "$art/files-to-review.txt" | sed 's/^/  /'
+    echo "  (full list: $art/files-to-review.txt)"
+    echo ""
+  fi
+
+  local preview_url=""
+  preview_url=$(_ghsb_resolve_preview_url "$repo" "$pr" 2>/dev/null) || preview_url=""
+
+  {
+    echo "# ghsbpr — PR #${pr}"
+    echo ""
+    echo "- Title: $pr_title"
+    echo "- PR: $pr_url"
+    echo "- Branch: $branch"
+    echo "- Base: $base_ref (${behind} behind, ${ahead} ahead)"
+    echo "- Worktree: $worktree"
+    [[ -n "$preview_url" ]] && echo "- Preview: $preview_url"
+    echo ""
+    echo "## Files to review (ranked)"
+    echo ""
+    cat "$art/files-to-review.txt" 2>/dev/null || echo "(none)"
+  } > "$art/SUMMARY.md"
+
+  GHSB_CHECKOUT[artifacts]="$art"
+  GHSB_CHECKOUT[preview_url]="$preview_url"
+}
+
+_ghsb_pr_review_prompt() {
+  local ai_tool="$1"
+  local pr="${GHSB_CHECKOUT[pr]}"
+  local art="${GHSB_CHECKOUT[artifacts]}"
+  local relevance="${GHSB_CHECKOUT[relevance_note]}"
+  if [[ "$ai_tool" == "grok" ]]; then
+    printf '%s\n' "/review-pr ${pr}
+
+${relevance}
+
+Also read ${art}/SUMMARY.md and ${art}/files-to-review.txt. Prioritise the ranked files for findings."
+  else
+    printf '%s\n' "/pr-review-toolkit:review-pr ${pr}
+
+${relevance}
+
+Also read ${art}/SUMMARY.md and ${art}/files-to-review.txt. Prioritise the ranked files for findings."
+  fi
+}
+
+# Require a live Herdr pane (HERDR_PANE_ID + HERDR_WORKSPACE_ID).
+# Usage: _ghsb_require_herdr_pane <cmd>
+_ghsb_require_herdr_pane() {
+  local cmd="${1:-ghi}"
+  if [[ -z "${HERDR_PANE_ID:-}" || -z "${HERDR_WORKSPACE_ID:-}" ]]; then
+    echo "${cmd} must be run from inside a Herdr pane."
+    echo "  1. herdr"
+    echo "  2. create a new space"
+    echo "  3. ${cmd} …"
+    return 1
+  fi
+  _ghsb_ensure_herdr
+}
+
+# Agent name in a Herdr pane, or empty.
+_ghsb_pane_agent() {
+  local pane_id="${1:-}"
+  [[ -n "$pane_id" ]] || return 1
+  local agent
+  agent=$(herdr pane get "$pane_id" 2>/dev/null | jq -r '.result.pane.agent // empty')
+  [[ -n "$agent" && "$agent" != "null" ]] || return 1
+  printf '%s\n' "$agent"
+}
+
+# Start an agent in the calling Herdr pane. If this pane already has an agent,
+# send the prompt there (same space / same agent). Session must already exist.
+# Usage: _ghsb_launch_in_current_space <label> <worktree> <ai_tool> <prompt> <session_id> [--review]
+_ghsb_launch_in_current_space() {
+  local label="$1" worktree="$2" ai_tool="$3" prompt="$4" session_id="$5"
+  local as_review=false
+  [[ "${6:-}" == "--review" ]] && as_review=true
+
+  local pane_id="${HERDR_PANE_ID:-}"
+  local workspace_id="${HERDR_WORKSPACE_ID:-}"
+  [[ -n "$pane_id" && -n "$workspace_id" ]] || {
+    echo "herdr: missing HERDR_PANE_ID / HERDR_WORKSPACE_ID" >&2
+    return 1
+  }
+
+  herdr workspace rename "$workspace_id" "$session_id" >/dev/null 2>&1 || true
+  cd "$worktree" || return 1
+  _ghsb_session_set "$session_id" "herdr_pane" "$pane_id"
+  _ghsb_session_set "$session_id" "herdr_workspace" "$workspace_id"
+
+  local current_agent=""
+  current_agent=$(_ghsb_pane_agent "$pane_id") || current_agent=""
+
+  if [[ -n "$current_agent" ]]; then
+    echo "This pane already has agent '$current_agent'; sending the prompt there."
+    _ghsb_herdr_send_prompt "$current_agent" "$prompt" \
+      || _ghsb_herdr_send_prompt "$pane_id" "$prompt" \
+      || true
+    _ghsb_session_set "$session_id" "herdr_agent" "$current_agent"
+    if $as_review; then
+      _ghsb_session_set "$session_id" "review_pane" "$pane_id"
+      _ghsb_session_set "$session_id" "review_agent" "$current_agent"
+    fi
+    return 0
+  fi
+
+  local log_dir log
+  log_dir="$GHSB_HOME/logs"
+  mkdir -p "$log_dir"
+  log="$log_dir/${session_id}.log"
+  echo "Starting ${ai_tool} in this pane once the shell is idle."
+  echo "Log: $log"
+
+  (
+    sleep 0.5
+    local launch_line agent_name
+    launch_line=$(_ghsb_herdr_launch_in_pane "$pane_id" "$workspace_id" "$label" "$worktree" "$ai_tool" "$prompt") || launch_line=""
+    if [[ -n "$launch_line" ]]; then
+      agent_name=${launch_line#*|}; agent_name=${agent_name%%|*}
+      _ghsb_session_set "$session_id" "herdr_agent" "$agent_name"
+      if $as_review; then
+        _ghsb_session_set "$session_id" "review_pane" "$pane_id"
+        _ghsb_session_set "$session_id" "review_agent" "$agent_name"
+      fi
+    fi
+  ) >>"$log" 2>&1 &!
+}
+
 # Shared implement prompt for ghsb / ghi agents.
 _ghsb_implement_prompt() {
   local issue_number="$1" issue_repo="$2" branch_name="$3" session_id="$4"
+  local ai_tool="${5:-}"
+  local review_skill="/pr-review-toolkit:review-pr"
+  [[ "$ai_tool" == "grok" ]] && review_skill="/review-pr"
   local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
   local finish_cmd="ghsb finish ${session_id}"
   printf '%s\n' "Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or lacks context, ask me what to accomplish and any constraints, then update the issue via 'gh issue edit ${issue_number} -R ${issue_repo}' before coding.
@@ -633,7 +1202,9 @@ When implementation is complete:
 1. Push the branch
 2. Open a PR if one does not exist (gh pr create), linking issue #${issue_number}
 3. Run: ${finish_cmd}
-That finish step records a Playwright video for user-facing changes, runs pr-review, ranks files for manual review, and prints preview/dev links."
+   That writes ranked files and an optional Playwright video. Stay in this session — do not start another agent or Herdr space.
+4. Review the PR yourself here: ${review_skill} <pr-number>
+   Read the SUMMARY.md and files-to-review.txt that finish printed, and prioritise the ranked files."
 }
 
 # OSC-8 hyperlink when stdout is a TTY (Ghostty/iTerm/etc). Herdr Ctrl-click also

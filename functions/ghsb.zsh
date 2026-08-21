@@ -39,8 +39,9 @@ Start a session (issue + branch + worktree + Herdr agent):
 
 Subcommands:
   ghsb finish [id]   After implementation: PR, Playwright video (if UI),
-                     pr-review agent, ranked files, preview/dev links
-  ghsb review <pr>   Review an existing PR in Herdr (alias: ghsbpr)
+                     ranked files, preview/dev links; review stays in
+                     this same grok/claude session
+  ghsb review <pr>   Review an existing PR (same space/agent if inside Herdr)
   ghsb status [id]   Show session metadata
   ghsb attach [id]   Attach Herdr agent pane (or print CF terminal URL)
   ghsb links [id]    Print review / preview / github.dev links
@@ -66,8 +67,8 @@ Env:
 Finish pipeline:
   1. Ensure branch is pushed and a PR exists
   2. If user-facing files changed → Playwright video of preview/dev URL
-  3. Launch pr-review agent (Herdr)
-  4. Rank files for manual review
+  3. Rank files for manual review
+  4. Prompt the existing grok/claude session to review (no new agent)
   5. Print PR, github.dev, dev env, and preview links
 EOF
 }
@@ -204,7 +205,7 @@ _ghsb_start() {
 
   # ── Agent prompt ──
   local ai_prompt
-  ai_prompt=$(_ghsb_implement_prompt "$issue_number" "$issue_repo" "$branch_name" "$session_id")
+  ai_prompt=$(_ghsb_implement_prompt "$issue_number" "$issue_repo" "$branch_name" "$session_id" "$ai_tool")
 
   if $no_agent; then
     echo "Session ready (no agent): $session_id"
@@ -582,40 +583,36 @@ Implemented via ghsb session \`${sid}\`." \
   _ghsb_session_set "$sid" "finished_at" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   _ghsb_session_set "$sid" "artifacts" "$art"
 
-  # Launch pr-review in Herdr
-  echo "→ Launching pr-review for #$pr ..."
+  # Review stays in the same grok/claude session — do not launch another agent.
+  local review_skill="/pr-review-toolkit:review-pr"
+  [[ "$ai_tool" == "grok" ]] && review_skill="/review-pr"
   local review_prompt
-  if [[ "$ai_tool" == "grok" ]]; then
-    review_prompt="/review-pr ${pr}
+  review_prompt="${review_skill} ${pr}
 
 Also read ${art}/SUMMARY.md and ${art}/files-to-review.txt. Prioritise the ranked files. If a Playwright video was recorded, note it in the review summary."
+
+  local review_target="" session_agent session_pane
+  session_agent=$(_ghsb_session_get "$sid" "herdr_agent")
+  session_pane=$(_ghsb_session_get "$sid" "herdr_pane")
+  if [[ -n "$session_agent" ]] && herdr agent get "$session_agent" >/dev/null 2>&1; then
+    review_target="$session_agent"
+  elif [[ -n "$session_pane" ]]; then
+    review_target="$session_pane"
   else
-    review_prompt="/pr-review-toolkit:review-pr ${pr}
-
-Also read ${art}/SUMMARY.md and ${art}/files-to-review.txt. Prioritise the ranked files. If a Playwright video was recorded, note it in the review summary."
+    local here_agent=""
+    here_agent=$(_ghsb_pane_agent "${HERDR_PANE_ID:-}") || here_agent=""
+    [[ -n "$here_agent" ]] && review_target="$here_agent"
   fi
 
-  local review_line="" review_pane="" review_agent=""
-  if command -v herdr >/dev/null 2>&1; then
-    review_line=$(_ghsb_herdr_launch "ghsb-review-${pr}" "$worktree" "$ai_tool" "$review_prompt") || true
-    if [[ -n "$review_line" ]]; then
-      review_pane=${review_line%%|*}
-      review_agent=${review_line#*|}; review_agent=${review_agent%%|*}
-      _ghsb_session_set "$sid" "review_pane" "$review_pane"
-      _ghsb_session_set "$sid" "review_agent" "$review_agent"
-      echo "  Review agent: $review_agent (pane $review_pane)"
-    fi
-  fi
-  if [[ -z "$review_pane" ]]; then
-    local flags
-    flags=$(_ghsb_ai_flags "$ai_tool")
-    if [[ -n "${TMUX:-}" ]]; then
-      tmux new-window -n "review-${pr}" -c "$worktree" \
-        "${ai_tool} ${flags} $(printf '%q' "$review_prompt")"
-    else
-      echo "Run review manually:"
-      echo "  cd $worktree && $ai_tool $flags $(printf '%q' "$review_prompt")"
-    fi
+  if [[ -n "$review_target" ]]; then
+    echo "→ Sending review to existing agent ($review_target) — no new space."
+    _ghsb_herdr_send_prompt "$review_target" "$review_prompt" || true
+    _ghsb_session_set "$sid" "review_pane" "${session_pane:-${HERDR_PANE_ID:-}}"
+    _ghsb_session_set "$sid" "review_agent" "${session_agent:-$review_target}"
+  else
+    echo "→ Review in this same agent (not launching a new one):"
+    echo "    ${review_skill} ${pr}"
+    echo "    read ${art}/SUMMARY.md and ${art}/files-to-review.txt"
   fi
 
   _ghsb_print_links "$repo" "$branch" "$pr" "$preview_url" "$dev_url" "$worktree"
@@ -626,5 +623,5 @@ Also read ${art}/SUMMARY.md and ${art}/files-to-review.txt. Prioritise the ranke
     echo "Video:     $video_path"
   fi
   echo ""
-  echo "Done. Review agent is running; attach with: ghsb attach $sid"
+  echo "Done. Review stays in this session. Attach: ghsb attach $sid"
 }
