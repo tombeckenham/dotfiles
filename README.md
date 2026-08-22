@@ -224,6 +224,28 @@ Opens a new Ghostty window in `$PWD`. If a command is supplied, it runs it after
 
 Source: `functions/ght.zsh`.
 
+### `hsplt` — attach a running Herdr workspace + split Cursor
+
+Opens an **existing** Herdr workspace for an issue or PR: Cursor on the left, this terminal attached to the running Herdr session on the right. Does not create a worktree or start an agent.
+
+```sh
+hsplt 1220
+hsplt pr 1178
+hsplt --remote workbox 1220
+hsplt --remote workbox --session agents pr 46
+hsplt                           # workspace for the current directory
+```
+
+| Flag | Description |
+| --- | --- |
+| `-r`, `--remote HOST` | `herdr --remote HOST` (SSH config Host or `user@host`). Workspace lookup runs over SSH. |
+| `-s`, `--session NAME` | Named Herdr session (`HERDR_SESSION` / `herdr --session`). |
+| `--pr` | Treat the number as a PR (`hsplt pr 1178` is the same). |
+
+Matching (live Herdr workspaces only): `{repo}-{N}`, `{N}-{slug}`, `pr-{N}`, `{repo}-pr-{N}`, or an exact label. A bare number tries the issue first, then the PR. Pass `--remote` when the Herdr server is on another machine.
+
+Source: `functions/hsplt.zsh`.
+
 ### `splt` — "PICK ME" attention banner
 
 ```sh
@@ -303,6 +325,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
     ├── ghwtrm.zsh
     ├── wt.zsh
     ├── ght.zsh
+    ├── hsplt.zsh
     ├── splt.zsh
     ├── _worktree_setup.zsh
     └── _cursor_tile_left.zsh
