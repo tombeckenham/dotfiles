@@ -144,7 +144,7 @@ ghwt() {
     fi
     echo "Found branch: $found_branch"
     git fetch origin "$found_branch" 2>/dev/null
-    _ghsb_herdr_wt_ensure_branch "$repo_root" "$found_branch" "${repo_name}-${issue_number}" || return 1
+    _ghsb_herdr_wt_ensure_branch "$repo_root" "$found_branch" "$(_ghsb_herdr_issue_label "$issue_number" "$found_branch")" || return 1
     worktree_path="${GHSB_HERDR_WT[path]}"
 
     # A/B: choose grok or claude deterministically per ticket (issue/PR mod 2; fallback mod of datetime)
@@ -333,7 +333,7 @@ ghwt() {
   local repo_root repo_name worktree_path
   repo_root=$(_ghsb_repo_root)
   repo_name=$(basename "$repo_root")
-  _ghsb_herdr_wt_ensure_branch "$repo_root" "$branch_name" "${repo_name}-${issue_number}" || return 1
+  _ghsb_herdr_wt_ensure_branch "$repo_root" "$branch_name" "$(_ghsb_herdr_issue_label "$issue_number" "$branch_name")" || return 1
   worktree_path="${GHSB_HERDR_WT[path]}"
 
   # A/B: choose grok or claude deterministically per ticket (issue/PR mod 2; fallback mod of datetime)

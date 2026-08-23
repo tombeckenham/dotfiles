@@ -56,12 +56,12 @@ Agents use **permission-mode auto** (not always-approve).
 
 Source: `functions/ghsb.zsh`, `functions/_ghsb_common.zsh`, `scripts/ghsb-record-preview.mjs`.
 
-### `ghi` — issue + worktree in the current Herdr space
+### `ghi` — issue + worktree from the repo root in Herdr
 
-Same checkout as `ghsb` (issue → branch → Herdr worktree → setup), but the agent stays in the space you already opened. Does not open Cursor.
+Same checkout as `ghsb` (issue → branch → Herdr worktree → setup). Run it from the repo root space (e.g. `openstory`). Creates a worktree grouped under that repo, switches you to it, and starts the agent there. Does not rename or `cd` the root space. Does not open Cursor.
 
 ```sh
-# Inside Herdr, in a new space:
+# Inside Herdr, from the repo root space:
 ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] "Issue title"
 ```
 
@@ -75,10 +75,10 @@ ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] "Issue title"
 
 What it does:
 
-1. Requires `HERDR_PANE_ID` — run it from inside Herdr, not a plain Ghostty window.
-2. Creates or reuses the issue, branch, and Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}` (same as `ghsb` / `ghwt`).
-3. Runs `_worktree_setup`, `cd`s this shell into the worktree, and renames the current space to `{repo}-{N}`.
-4. Starts grok/claude in this pane once the shell is idle. If this pane already has an agent, the prompt goes to that agent (same space).
+1. Requires `HERDR_PANE_ID` — run it from inside Herdr (the repo root space is the usual place).
+2. Creates or reuses the issue, branch, and Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}` (grouped under the repo in the sidebar).
+3. Runs `_worktree_setup`, labels the worktree `{N}-{slug}`, and focuses that space. The space you ran it from stays as-is.
+4. Starts grok/claude in the worktree pane once that shell is idle.
 5. Writes a `ghsb` session so `ghsb finish` still works when you are done.
 
 Source: `functions/ghi.zsh`.
@@ -140,12 +140,12 @@ What it does:
 
 Source: `functions/ghwt.zsh`.
 
-### `ghwtv` — GitHub issue + worktree + tode in Herdr
+### `ghwtv` — GitHub issue + worktree + agent in Herdr
 
-Same issue → branch → worktree as `ghwt`, but opens **tode** in a Herdr split instead of Cursor.
+Same issue → branch → worktree as `ghwt`, with grok/claude in Herdr. Does **not** open Cursor or terminal-code (tode). Pass `--tode` for the old split.
 
 ```sh
-ghwtv [-c] [-f] [-b <branch>] [-i <number>] "Issue title"
+ghwtv [-c] [-f] [-b <branch>] [-i <number>] [--tode] "Issue title"
 ghwtv -e <number>
 ```
 
@@ -153,8 +153,8 @@ Detection: `HERDR_ENV=1` plus `HERDR_PANE_ID` means you are already inside Herdr
 
 | Where you run it | What happens |
 | --- | --- |
-| Inside Herdr | Splits this pane, opens tode on the left (or top if the pane is tall), starts grok/claude in this pane once the shell is idle. |
-| Outside Herdr | Creates a Herdr workspace at the worktree, same split + agent, prints `herdr` so you can attach. |
+| Inside Herdr | Starts grok/claude in this pane once the shell is idle. `--tode` also splits and opens terminal-code. |
+| Outside Herdr | Uses the worktree workspace, same agent, prints `herdr` so you can attach. |
 
 Source: `functions/ghwtv.zsh`.
 
@@ -226,11 +226,11 @@ Source: `functions/ght.zsh`.
 
 ### `hsplt` — attach a running Herdr workspace + split Cursor
 
-Opens an **existing** Herdr workspace for an issue or PR: Cursor on the left, this terminal attached to the running Herdr session on the right. Does not create a worktree or start an agent.
+Opens an **existing** Herdr workspace for an issue or PR. Default: a **new Ghostty window** (PICK ME banner, Cursor left, `herdr agent attach` for that space). Two windows can show different spaces. `--here` uses this terminal instead. Does not create a worktree or start an agent.
 
 ```sh
-hsplt 1220
-hsplt pr 1178
+hsplt 1220                      # new Ghostty window
+hsplt --here pr 1178            # this terminal
 hsplt --remote workbox 1220
 hsplt --remote workbox --session agents pr 46
 hsplt                           # workspace for the current directory
@@ -238,11 +238,13 @@ hsplt                           # workspace for the current directory
 
 | Flag | Description |
 | --- | --- |
+| `-n`, `--new-window` | New Ghostty window (default). |
+| `--here` | PICK ME + attach in this terminal. |
 | `-r`, `--remote HOST` | `herdr --remote HOST` (SSH config Host or `user@host`). Workspace lookup runs over SSH. |
 | `-s`, `--session NAME` | Named Herdr session (`HERDR_SESSION` / `herdr --session`). |
 | `--pr` | Treat the number as a PR (`hsplt pr 1178` is the same). |
 
-Matching (live Herdr workspaces only): `{repo}-{N}`, `{N}-{slug}`, `pr-{N}`, `{repo}-pr-{N}`, or an exact label. A bare number tries the issue first, then the PR. Pass `--remote` when the Herdr server is on another machine.
+Matching (live Herdr workspaces only): `{N}-{slug}`, `{repo}-{N}`, `pr-{N}`, `{repo}-pr-{N}`, or an exact label. A bare number tries the issue first, then the PR. Pass `--remote` when the Herdr server is on another machine.
 
 Source: `functions/hsplt.zsh`.
 
@@ -335,5 +337,5 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 
 - macOS only — uses `xcode-select`, `pmset`, `osascript`, `pinentry-mac` and `/opt/homebrew` paths.
 - `bootstrap.sh` calls `sudo pmset` to keep the machine awake. Remove that block if you don't want always-on power management.
-- `ghwt`, `ghwtv`, `ghwtprv`, `ghwtb`, and `wt` assume Claude Code is installed and on `PATH` (`bootstrap.sh` installs it). New worktrees are Herdr worktrees under `~/.herdr/worktrees/{repo}/{branch-slug}` (legacy `~/.claude/worktrees/{repo}-{N}` checkouts are still opened). `ghwtv` also needs `tode` and `herdr` on `PATH`. `ghwtprv` needs `herdr` and the `persiyanov.reviewr` plugin (`herdr plugin install persiyanov/herdr-reviewr`).
+- `ghwt`, `ghwtv`, `ghwtprv`, `ghwtb`, and `wt` assume Claude Code is installed and on `PATH` (`bootstrap.sh` installs it). New worktrees are Herdr worktrees under `~/.herdr/worktrees/{repo}/{branch-slug}` (legacy `~/.claude/worktrees/{repo}-{N}` checkouts are still opened). `ghwtv --tode` needs `tode` and `herdr` on `PATH`. `ghwtprv` needs `herdr` and the `persiyanov.reviewr` plugin (`herdr plugin install persiyanov/herdr-reviewr`).
 - If you fork this repo, prune `Brewfile` and skip the steps in `bootstrap.sh` you don't want (Vercel, Wrangler, OpenCode, Grok, GPG key generation, etc.).

@@ -1,14 +1,15 @@
 # hsplt — Cursor left + attach a running Herdr workspace for an issue/PR
-# Usage: hsplt [--remote HOST] [--session NAME] [--pr] [<issue|pr|label>]
+# Usage: hsplt [--remote HOST] [--session NAME] [--pr] [--here|-n] [<issue|pr|label>]
 #        hsplt 1220
 #        hsplt pr 1178
 #        hsplt --remote workbox 1220
 #
-# Does not create anything. Looks up a live Herdr workspace, tiles Cursor at
-# its worktree, focuses that workspace, then attaches this terminal to Herdr.
+# Default: new Ghostty window (PICK ME + Cursor + herdr agent attach).
+# Direct-attaches that workspace's agent so two windows can show different
+# spaces. --here uses this terminal. Does not create a worktree or start an agent.
 
 hsplt() {
-  local remote="" session="" as_pr=false
+  local remote="" session="" as_pr=false here=false
   local -a positional=()
 
   while [[ $# -gt 0 ]]; do
@@ -25,6 +26,14 @@ hsplt() {
         ;;
       --pr)
         as_pr=true
+        shift
+        ;;
+      -n|--new-window)
+        here=false
+        shift
+        ;;
+      --here)
+        here=true
         shift
         ;;
       -h|--help)
@@ -133,25 +142,45 @@ hsplt() {
   echo "Workspace: $label  ($ws_id)"
   [[ -n "$wt_path" ]] && echo "Worktree:  $wt_path"
 
+  if ! $here; then
+    local -a child=(--here)
+    [[ -n "$remote" ]] && child+=(--remote "$remote")
+    [[ -n "$session" ]] && child+=(--session "$session")
+    $as_pr && child+=(--pr)
+    [[ -n "$query" ]] && child+=("$query")
+    echo "Opening a new Ghostty window…"
+    _hsplt_ghostty_window "${wt_path:-$PWD}" "${child[@]}"
+    return 0
+  fi
+
   if [[ -n "$wt_path" ]]; then
+    if [[ -t 1 ]]; then
+      _splt_banner
+    fi
     _hsplt_open_cursor "$wt_path" "$remote" || true
+    if [[ -t 1 ]]; then
+      _splt_wait
+    fi
   else
     echo "No worktree path on this workspace; attaching Herdr without Cursor."
   fi
 
-  _hsplt_cli "$remote" "$session" workspace focus "$ws_id" >/dev/null || {
-    echo "hsplt: herdr workspace focus $ws_id failed"
+  local target
+  target=$(_hsplt_attach_target "$remote" "$session" "$ws_id" "$wt_path") || target=""
+  if [[ -z "$target" ]]; then
+    echo "hsplt: no agent or pane to attach in workspace $label ($ws_id)"
     return 1
-  }
+  fi
 
   if [[ "${HERDR_ENV:-}" == 1 ]]; then
-    echo "Already inside Herdr; focused $label."
+    echo "Already inside Herdr; Cursor opened for $label."
+    echo "Attach from Ghostty: hsplt --here ${query:-$label}"
     return 0
   fi
 
   if [[ ! -t 1 ]]; then
     echo "Not a TTY. Attach with:"
-    _hsplt_print_tui "$remote" "$session"
+    _hsplt_print_attach "$remote" "$session" "$target"
     return 0
   fi
 
@@ -159,31 +188,66 @@ hsplt() {
     osascript -e 'tell application "Ghostty" to activate' >/dev/null 2>&1 || true
   fi
 
-  echo "Attaching Herdr…"
-  _hsplt_tui "$remote" "$session"
+  _hsplt_agent_attach "$remote" "$session" "$target"
 }
 
 _hsplt_help() {
   cat <<'EOF'
 hsplt — open Cursor + attach a running Herdr workspace
 
-Looks up a live Herdr workspace for an issue, PR, or label. Tiles Cursor
-left at that worktree, focuses the workspace, then attaches this terminal
-to the running Herdr session. Does not create a worktree or start an agent.
+Looks up a live Herdr workspace for an issue, PR, or label. Default: open a
+new Ghostty window, show PICK ME, tile Cursor left, then
+`herdr agent attach` that space's agent (so two windows can show different
+spaces). Does not create a worktree or start an agent.
 
-  hsplt 1220                      # issue 1220 (falls back to PR 1220)
-  hsplt pr 1178                   # PR 1178
-  hsplt --pr 1178
-  hsplt openstory-1220            # exact workspace label
-  hsplt --remote workbox 1220     # herdr --remote workbox
+  hsplt 1220                      # new window (issue 1220, else PR)
+  hsplt pr 1178
+  hsplt --here 1220               # this terminal instead
+  hsplt --remote workbox 1220
   hsplt --remote workbox --session agents pr 46
   hsplt                           # workspace for the current directory
 
 Flags:
-  -r, --remote HOST   Attach with herdr --remote HOST (SSH Host or user@host)
+  -n, --new-window    New Ghostty window (default)
+  --here              Use this terminal (PICK ME + attach here)
+  -r, --remote HOST   Lookup/attach over SSH (Host or user@host)
   -s, --session NAME  Named Herdr session (HERDR_SESSION / --session)
   --pr                Treat the number as a PR
 EOF
+}
+
+# New Ghostty window that runs hsplt --here … (PICK ME + Cursor + attach).
+# Ghostty registers .command as a terminal script; `open -a` runs it in a new
+# surface. Do not keystroke into Cmd+N — those keys land in the Herdr pane.
+_hsplt_ghostty_window() {
+  local dir="$1"
+  shift
+  local launcher
+  launcher=$(mktemp "${TMPDIR:-/tmp}/hsplt.XXXXXX") || return 1
+  mv "$launcher" "$launcher.command" || return 1
+  launcher="$launcher.command"
+  {
+    print -r -- '#!/bin/zsh'
+    print -r -- 'unset HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID'
+    print -r -- 'export PATH="/opt/homebrew/bin:$HOME/.local/bin:/usr/local/bin:$PATH"'
+    print -r -- 'trap '\''rm -f -- "$0"'\'' EXIT'
+    print -r -- 'if [[ -d "$HOME/.zsh_functions" ]]; then'
+    print -r -- '  setopt NULL_GLOB'
+    print -r -- '  for f in "$HOME/.zsh_functions"/*.zsh; do'
+    print -r -- '    source "$f"'
+    print -r -- '  done'
+    print -r -- 'fi'
+    print -r -- "cd $(printf '%q' "$dir") || true"
+    print -rn -- 'hsplt '
+    printf '%q ' "$@"
+    print
+  } > "$launcher"
+  chmod +x "$launcher"
+  open -a Ghostty.app "$launcher" || {
+    echo "hsplt: could not open Ghostty. Run in this terminal:"
+    echo "  hsplt --here $(printf '%q ' "$@")"
+    return 1
+  }
 }
 
 # herdr CLI against the local or remote server (not the TUI).
@@ -216,21 +280,71 @@ _hsplt_cli() {
   "${ssh[@]}" "$dest" -- "bash -lc $(printf '%q' "$cmd")"
 }
 
-_hsplt_tui() {
-  local remote="$1" session="$2"
-  local -a tui=(herdr)
-  [[ -n "$remote" ]] && tui+=(--remote "$remote")
-  [[ -n "$session" ]] && tui+=(--session "$session")
-  "${tui[@]}"
+# Agent name or pane id in $ws, preferring ghi/ghsb/ghwt* names.
+_hsplt_attach_target() {
+  local remote="$1" session="$2" ws="$3" wt_path="$4"
+  local json target
+  json=$(_hsplt_cli "$remote" "$session" agent list) || json=""
+  target=$(printf '%s\n' "$json" | jq -r --arg ws "$ws" --arg cwd "${wt_path:-}" '
+    def score:
+      (if (.name // "") != "" then 10 else 0 end)
+      + (if ((.name // "") | test("^(ghi|ghsb|ghwt)")) then 20 else 0 end)
+      + (if $cwd != "" and ((.foreground_cwd // .cwd // "") | startswith($cwd)) then 5 else 0 end);
+    [.result.agents[]? | select(.workspace_id == $ws)]
+    | if length == 0 then empty
+      else sort_by(-score) | .[0] | (.name // .pane_id // empty)
+      end
+  ')
+  if [[ -n "$target" && "$target" != "null" ]]; then
+    printf '%s\n' "$target"
+    return 0
+  fi
+  json=$(_hsplt_cli "$remote" "$session" pane list --workspace "$ws") || return 1
+  printf '%s\n' "$json" | jq -r '.result.panes[0].pane_id // empty'
 }
 
-_hsplt_print_tui() {
-  local remote="$1" session="$2"
-  local -a tui=(herdr)
-  [[ -n "$remote" ]] && tui+=(--remote "$remote")
-  [[ -n "$session" ]] && tui+=(--session "$session")
-  printf '  %q' "${tui[@]}"
-  printf '\n'
+_hsplt_agent_attach() {
+  local remote="$1" session="$2" target="$3"
+  [[ -n "$target" ]] || return 1
+  echo "Attaching ${target}…"
+  if [[ -z "$remote" ]]; then
+    if [[ -n "$session" ]]; then
+      HERDR_SESSION="$session" herdr agent attach "$target" \
+        || HERDR_SESSION="$session" herdr agent attach "$target" --takeover
+    else
+      herdr agent attach "$target" \
+        || herdr agent attach "$target" --takeover
+    fi
+    return $?
+  fi
+  local cmd dest="$remote" port=""
+  cmd="herdr agent attach $(printf '%q' "$target") --takeover"
+  [[ -n "$session" ]] && cmd="HERDR_SESSION=$(printf '%q' "$session") ${cmd}"
+  cmd="PATH=\"\$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:\$PATH\" ${cmd}"
+  if [[ "$remote" == ssh://* ]]; then
+    dest="${remote#ssh://}"
+    dest="${dest%%/*}"
+    if [[ "$dest" == *:* && "$dest" != \[* ]]; then
+      port="${dest##*:}"
+      dest="${dest%:*}"
+    fi
+  fi
+  local -a ssh=(ssh -t -q -o BatchMode=yes -o ConnectTimeout=8)
+  [[ -n "$port" ]] && ssh+=(-p "$port")
+  "${ssh[@]}" "$dest" -- "bash -lc $(printf '%q' "$cmd")"
+}
+
+_hsplt_print_attach() {
+  local remote="$1" session="$2" target="$3"
+  if [[ -n "$remote" ]]; then
+    echo "  ssh -t $(printf '%q' "$remote") -- herdr agent attach $(printf '%q' "$target") --takeover"
+    return 0
+  fi
+  if [[ -n "$session" ]]; then
+    echo "  HERDR_SESSION=$(printf '%q' "$session") herdr agent attach $(printf '%q' "$target")"
+  else
+    echo "  herdr agent attach $(printf '%q' "$target")"
+  fi
 }
 
 # Winner line: workspace_id<TAB>label<TAB>path<TAB>score

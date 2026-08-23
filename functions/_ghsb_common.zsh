@@ -158,6 +158,19 @@ _ghsb_herdr_branch_slug() {
   echo "$1" | sed 's/[\/<>:"|?*]/-/g'
 }
 
+# Herdr sidebar label for an issue worktree. Starts with the issue number so
+# truncated names stay unique (1227-csrf-… vs openstory-12…).
+_ghsb_herdr_issue_label() {
+  local issue="$1" branch="$2"
+  local slug
+  slug=$(_ghsb_herdr_branch_slug "$branch")
+  if [[ "$slug" == "${issue}-"* ]]; then
+    printf '%s\n' "$slug"
+  else
+    printf '%s\n' "$issue"
+  fi
+}
+
 _ghsb_herdr_worktrees_root() {
   echo "${HERDR_WORKTREES_DIR:-$HOME/.herdr/worktrees}"
 }
@@ -298,9 +311,14 @@ _ghsb_herdr_wt_ensure_branch() {
     fi
   fi
   if [[ -z "$wt_path" ]]; then
-    local legacy
+    local legacy repo_name
+    repo_name=$(basename "$repo_root")
     legacy="$HOME/.claude/worktrees/${label}"
     [[ -d "$legacy" ]] && wt_path="$legacy"
+    if [[ -z "$wt_path" && "$label" =~ ^([0-9]+) ]]; then
+      legacy="$HOME/.claude/worktrees/${repo_name}-${match[1]}"
+      [[ -d "$legacy" ]] && wt_path="$legacy"
+    fi
   fi
   if [[ -n "$wt_path" ]]; then
     echo "Worktree already exists at: $wt_path"
@@ -310,6 +328,7 @@ _ghsb_herdr_wt_ensure_branch() {
       _ghsb_herdr_wt_register_path "$repo_root" "$wt_path" "$label"
     fi
     GHSB_HERDR_WT[path]="${GHSB_HERDR_WT[path]:-$wt_path}"
+    _ghsb_herdr_wt_rename_open "$label"
     return 0
   fi
 
@@ -331,6 +350,7 @@ _ghsb_herdr_wt_ensure_branch() {
       if [[ -n "$wt_path" && -d "$wt_path" ]]; then
         echo "Worktree already exists at: $wt_path"
         _ghsb_herdr_wt_register_path "$repo_root" "$wt_path" "$label"
+        _ghsb_herdr_wt_rename_open "$label"
         return 0
       fi
       echo "herdr worktree create failed: $out" >&2
@@ -344,6 +364,7 @@ _ghsb_herdr_wt_ensure_branch() {
     fi
     echo "Worktree created at: ${GHSB_HERDR_WT[path]}"
     _worktree_setup "${GHSB_HERDR_WT[path]}"
+    _ghsb_herdr_wt_rename_open "$label"
     return 0
   fi
 
@@ -356,6 +377,14 @@ _ghsb_herdr_wt_ensure_branch() {
   echo "Worktree created at: $herdr_path"
   _worktree_setup "$herdr_path"
   GHSB_HERDR_WT[path]="$herdr_path"
+}
+
+_ghsb_herdr_wt_rename_open() {
+  local label="$1"
+  local ws="${GHSB_HERDR_WT[workspace_id]:-}"
+  [[ -n "$label" && -n "$ws" ]] || return 0
+  command -v herdr >/dev/null 2>&1 || return 0
+  herdr workspace rename "$ws" "$label" >/dev/null 2>&1 || true
 }
 
 _ghsb_herdr_wt_apply_checkout() {
@@ -849,7 +878,7 @@ _ghsb_checkout_issue() {
   session_id="${repo_name}-${issue_number}"
   origin_repo=$(git remote get-url origin 2>/dev/null | sed 's#.*github\.com[/:]##; s#\.git$##')
 
-  _ghsb_herdr_wt_ensure_branch "$repo_root" "$branch_name" "${repo_name}-${issue_number}" || return 1
+  _ghsb_herdr_wt_ensure_branch "$repo_root" "$branch_name" "$(_ghsb_herdr_issue_label "$issue_number" "$branch_name")" || return 1
   _ghsb_herdr_wt_apply_checkout
 
   GHSB_CHECKOUT[issue]="$issue_number"
@@ -1109,10 +1138,9 @@ Also read ${art}/SUMMARY.md and ${art}/files-to-review.txt. Prioritise the ranke
 _ghsb_require_herdr_pane() {
   local cmd="${1:-ghi}"
   if [[ -z "${HERDR_PANE_ID:-}" || -z "${HERDR_WORKSPACE_ID:-}" ]]; then
-    echo "${cmd} must be run from inside a Herdr pane."
+    echo "${cmd} must be run from inside a Herdr pane (e.g. the repo root space)."
     echo "  1. herdr"
-    echo "  2. create a new space"
-    echo "  3. ${cmd} …"
+    echo "  2. ${cmd} …"
     return 1
   fi
   _ghsb_ensure_herdr
@@ -1128,8 +1156,36 @@ _ghsb_pane_agent() {
   printf '%s\n' "$agent"
 }
 
-# Start an agent in the calling Herdr pane. If this pane already has an agent,
-# send the prompt there (same space / same agent). Session must already exist.
+_ghsb_issue_space_label() {
+  local fallback="${1:-}"
+  if [[ -n "${GHSB_CHECKOUT[issue]:-}" && -n "${GHSB_CHECKOUT[branch]:-}" ]]; then
+    _ghsb_herdr_issue_label "${GHSB_CHECKOUT[issue]}" "${GHSB_CHECKOUT[branch]}"
+  elif [[ -n "${GHSB_CHECKOUT[pr]:-}" ]]; then
+    printf 'pr-%s\n' "${GHSB_CHECKOUT[pr]}"
+  else
+    printf '%s\n' "$fallback"
+  fi
+}
+
+# Focus the checkout's Herdr worktree space when it is not this space.
+# Leaves the caller's space (repo root) unnamed/un-cd'd. Returns 0 if switched.
+_ghsb_focus_worktree_if_other() {
+  local wt_ws="${GHSB_CHECKOUT[herdr_workspace]:-}"
+  local here="${HERDR_WORKSPACE_ID:-}"
+  local label="${1:-}"
+  [[ -n "$wt_ws" && "$wt_ws" != "$here" ]] || return 1
+  [[ -n "$label" ]] && herdr workspace rename "$wt_ws" "$label" >/dev/null 2>&1 || true
+  herdr workspace focus "$wt_ws" >/dev/null 2>&1 || {
+    echo "herdr workspace focus $wt_ws failed" >&2
+    return 1
+  }
+  echo "Switched to worktree ${label:-$wt_ws}"
+  return 0
+}
+
+# Start an agent in the worktree's Herdr space. From the repo root, that means
+# focusing the grouped worktree (does not rename or cd this space). If this
+# pane already is that space and has an agent, the prompt goes there.
 # Usage: _ghsb_launch_in_current_space <label> <worktree> <ai_tool> <prompt> <session_id> [--review]
 _ghsb_launch_in_current_space() {
   local label="$1" worktree="$2" ai_tool="$3" prompt="$4" session_id="$5"
@@ -1143,8 +1199,18 @@ _ghsb_launch_in_current_space() {
     return 1
   }
 
-  herdr workspace rename "$workspace_id" "$session_id" >/dev/null 2>&1 || true
-  cd "$worktree" || return 1
+  local space_label
+  space_label=$(_ghsb_issue_space_label "$session_id")
+  local wt_ws="${GHSB_CHECKOUT[herdr_workspace]:-}"
+  local wt_pane="${GHSB_CHECKOUT[herdr_pane]:-}"
+
+  if _ghsb_focus_worktree_if_other "$space_label"; then
+    pane_id="${wt_pane:-$pane_id}"
+    workspace_id="$wt_ws"
+  else
+    herdr workspace rename "$workspace_id" "$space_label" >/dev/null 2>&1 || true
+    cd "$worktree" || return 1
+  fi
   _ghsb_session_set "$session_id" "herdr_pane" "$pane_id"
   _ghsb_session_set "$session_id" "herdr_workspace" "$workspace_id"
 
@@ -1168,7 +1234,7 @@ _ghsb_launch_in_current_space() {
   log_dir="$GHSB_HOME/logs"
   mkdir -p "$log_dir"
   log="$log_dir/${session_id}.log"
-  echo "Starting ${ai_tool} in this pane once the shell is idle."
+  echo "Starting ${ai_tool} in ${workspace_id} once the shell is idle."
   echo "Log: $log"
 
   (

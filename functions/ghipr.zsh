@@ -2,8 +2,9 @@
 # Usage: ghipr [-i] [--no-agent] <pr-number>
 #        ghi review <pr-number>
 #
-# Same checkout as ghsbpr (PR worktree + ranked files), but stays in the space
-# you already opened. Does not open an editor and does not create a Herdr workspace.
+# Same checkout as ghsbpr (PR worktree + ranked files). From the repo root
+# space, creates the PR worktree, switches you to it, and starts the review
+# agent there. Does not rename or cd this space.
 ghipr() {
   local pr_number="" no_agent=false
 
@@ -68,8 +69,8 @@ ghipr() {
     --arg base "$base_ref" \
     --arg preview "${preview_url}" \
     --arg art "$art" \
-    --arg pane "${HERDR_PANE_ID}" \
-    --arg workspace "${HERDR_WORKSPACE_ID}" \
+    --arg pane "${GHSB_CHECKOUT[herdr_pane]:-${HERDR_PANE_ID}}" \
+    --arg workspace "${GHSB_CHECKOUT[herdr_workspace]:-${HERDR_WORKSPACE_ID}}" \
     --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{
       id: $id,
@@ -103,7 +104,8 @@ ghipr() {
   echo "Artifacts: $art"
 
   if $no_agent; then
-    cd "$worktree_path" || return 1
+    _ghsb_focus_worktree_if_other "$(_ghsb_issue_space_label "$session_id")" \
+      || cd "$worktree_path" || return 1
     echo "No agent (--no-agent)."
     return 0
   fi
@@ -115,11 +117,11 @@ ghipr() {
 
 _ghipr_help() {
   cat <<'EOF'
-ghipr — review a GitHub PR in the current Herdr space
+ghipr — review a GitHub PR from a Herdr pane
 
-Run from a pane inside Herdr (create a new space first). Does not open an
-editor. The checkout is a Herdr worktree (grouped under the repo); the review
-agent stays in this pane.
+Run from the repo root space. Creates a PR worktree grouped under the repo,
+switches you to it, and starts the review agent there. Does not rename or
+cd this space.
 
   ghipr [-i] [--no-agent] <pr-number>
   ghi review <pr-number>     # same

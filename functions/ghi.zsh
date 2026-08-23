@@ -1,10 +1,9 @@
-# ghi — start issue work in the current Herdr space
+# ghi — start issue work from a Herdr pane (typically the repo root space)
 # Usage: ghi [-c] [-f] [-b <branch>] [-i <number>] [--no-agent] "Issue title"
 #        ghi review <pr-number>   # same as ghipr
 #
-# Same checkout as ghsb (issue → branch → worktree), but does not open an
-# editor and does not create a Herdr workspace. Run it from inside a space
-# you already opened; the agent starts in this pane after the command returns.
+# Creates a Herdr worktree grouped under the repo, focuses that space, and
+# starts the agent there. Does not rename or cd the space you ran it from.
 ghi() {
   case "${1:-}" in
     review)
@@ -76,8 +75,8 @@ ghi() {
     --arg backend "local" \
     --arg ai "$ai_tool" \
     --arg base "$default_branch" \
-    --arg pane "${HERDR_PANE_ID}" \
-    --arg workspace "${HERDR_WORKSPACE_ID}" \
+    --arg pane "${GHSB_CHECKOUT[herdr_pane]:-${HERDR_PANE_ID}}" \
+    --arg workspace "${GHSB_CHECKOUT[herdr_workspace]:-${HERDR_WORKSPACE_ID}}" \
     --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{
       id: $id,
@@ -108,7 +107,8 @@ ghi() {
   echo "Session:  $session_id"
 
   if $no_agent; then
-    cd "$worktree_path" || return 1
+    _ghsb_focus_worktree_if_other "$(_ghsb_issue_space_label "$session_id")" \
+      || cd "$worktree_path" || return 1
     echo "No agent (--no-agent). When done: ghsb finish $session_id"
     return 0
   fi
@@ -121,11 +121,11 @@ ghi() {
 
 _ghi_help() {
   cat <<'EOF'
-ghi — start issue work in the current Herdr space
+ghi — start issue work from a Herdr pane
 
-Run from a pane inside Herdr (create a new space first). Does not open an
-editor. The checkout is a Herdr worktree (grouped under the repo); the agent
-stays in this pane.
+Run from the repo root space (e.g. openstory). Creates a worktree grouped
+under the repo, switches you to it, and starts the agent there. Does not
+rename or cd this space.
 
   ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] "Issue title"
   ghi review <pr-number>     # same as ghipr
@@ -137,7 +137,6 @@ Flags:
   -f, --fork        Issues on the fork (not upstream)
   --no-agent        Only create issue/branch/worktree (no agent)
 
-After setup, the agent starts in this space. Finish later with:
-  ghsb finish
+Finish later with: ghsb finish
 EOF
 }
