@@ -12,11 +12,11 @@ Custom shell functions live in `functions/`. `bootstrap.sh` symlinks the directo
 
 ### `ghsb` — issue + Herdr session + finish review pipeline (Architecture A)
 
-Sandbox-oriented successor to the `ghwt` *session* layer. Ghostty stays your terminal; **Herdr** holds the agent session. Optional **Cloudflare Sandbox** provisions a remote preview/dev env. When work is done, `ghsb finish` runs the full review handoff.
+Sandbox-oriented successor to the `ghwt` *session* layer. Ghostty stays your terminal; **Herdr** holds the agent session. Optional **Cloudflare Sandbox** provisions a remote preview/dev env. Wrap-up is push + PR unless you pass `--video` / `--review-fix`.
 
 ```sh
-ghsb [-c] [-f] [-b <branch>] [-i <N>] [--local|--cf] "Issue title"
-ghsb finish [session-id]
+ghsb [-c] [-f] [-b <branch>] [-i <N>] [--local|--cf] [--video] [--review-fix] "Issue title"
+ghsb finish [--video] [--review-fix] [session-id]
 ghsb review <pr-number>          # same as ghsbpr
 ghsb status|attach|links|list|rm [session-id]
 ```
@@ -27,26 +27,23 @@ ghsb status|attach|links|list|rm [session-id]
 | Herdr | Persistent agent panes (cockpit) |
 | Local worktree | Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}` |
 | Cloudflare Sandbox (`--cf`) | Remote clone + dev server + preview URL |
-| `ghsb finish` | PR → Playwright video (if UI) → ranked files → same-agent review → links |
+| `ghsb finish` | Push + PR + ranked files. `--video` / `--review-fix` are opt-in. |
 
-**Finish pipeline** (run after the agent pushes, or tell the agent to run it):
+**Finish pipeline** (`ghsb finish`):
 
 1. Push branch and ensure a PR exists  
-2. Rank changed files for manual review (`~/.ghsb/artifacts/.../files-to-review.txt`)  
-3. If user-facing paths changed and a preview/dev URL exists → Playwright walkthrough video  
-4. Prompt the **same** grok/claude session to review (`/review-pr` or `/pr-review-toolkit:review-pr`) — no new Herdr space or agent  
-5. Print PR, github.dev, VS Code web, dev env, and PR preview links  
+2. Rank changed files for manual review  
+3. `--video`: Playwright walkthrough if UI files changed  
+4. `--review-fix`: prompt the same grok/claude session to review and fix  
+5. Print PR, github.dev, dev env, and preview links  
 
 ```sh
-# Local Herdr session (default)
+# Local Herdr session (default wrap-up: push + PR)
 ghsb "Add dark mode"
 
-# Also provision CF preview sandbox (needs deploy + env)
-export GHSB_API_URL="https://ghsb-sandbox.<you>.workers.dev"
-export GHSB_API_TOKEN="…"
-ghsb --cf -i 42
+ghi --video --review-fix -i 42   # opt in to recording + self-review
 
-ghsb finish          # from the worktree, or: ghsb finish myrepo-42
+ghsb finish --video --review-fix   # from the worktree, or pass session id
 ghsb links
 ```
 
@@ -62,7 +59,7 @@ Same checkout as `ghsb` (issue → branch → Herdr worktree → setup). Run it 
 
 ```sh
 # Inside Herdr, from the repo root space:
-ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] "Issue title"
+ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] [--video] [--review-fix] "Issue title"
 ```
 
 | Flag | Description |
@@ -72,6 +69,8 @@ ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] "Issue title"
 | `-f`, `--fork` | Target the fork's own issue tracker instead of upstream (forks only). |
 | `-i <N>` | Develop an existing issue instead of creating a new one. |
 | `--no-agent` | Stop after the worktree (no agent). |
+| `--video` | After the PR, record a Playwright walkthrough (`ghsb finish --video`). |
+| `--review-fix` | After the PR, self-review and fix in this same agent. |
 
 What it does:
 
@@ -79,7 +78,7 @@ What it does:
 2. Creates or reuses the issue, branch, and Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}` (grouped under the repo in the sidebar).
 3. Runs `_worktree_setup`, labels the worktree `{N}-{slug}`, and focuses that space. The space you ran it from stays as-is.
 4. Starts grok/claude in the worktree pane once that shell is idle.
-5. Writes a `ghsb` session so `ghsb finish` still works when you are done.
+5. Writes a `ghsb` session. Default agent wrap-up is push + PR only.
 
 Source: `functions/ghi.zsh`.
 
@@ -145,7 +144,7 @@ Source: `functions/ghwt.zsh`.
 Same issue → branch → worktree as `ghwt`, with grok/claude in Herdr. Does **not** open Cursor or terminal-code (tode). Pass `--tode` for the old split.
 
 ```sh
-ghwtv [-c] [-f] [-b <branch>] [-i <number>] [--tode] "Issue title"
+ghwtv [-c] [-f] [-b <branch>] [-i <number>] [--tode] [--video] [--review-fix] "Issue title"
 ghwtv -e <number>
 ```
 

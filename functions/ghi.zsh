@@ -1,5 +1,5 @@
 # ghi — start issue work from a Herdr pane (typically the repo root space)
-# Usage: ghi [-c] [-f] [-b <branch>] [-i <number>] [--no-agent] "Issue title"
+# Usage: ghi [-c] [-f] [-b <branch>] [-i <number>] [--no-agent] [--video] [--review-fix] "Issue title"
 #        ghi review <pr-number>   # same as ghipr
 #
 # Creates a Herdr worktree grouped under the repo, focuses that space, and
@@ -14,7 +14,7 @@ ghi() {
   esac
 
   local base_branch="" issue_number="" branch_name="" target_fork=false
-  local no_agent=false
+  local no_agent=false want_video=false want_review=false
 
   while [[ "$1" == -* ]]; do
     case "$1" in
@@ -36,6 +36,14 @@ ghi() {
         ;;
       --no-agent)
         no_agent=true
+        shift
+        ;;
+      --video)
+        want_video=true
+        shift
+        ;;
+      --review-fix|--review)
+        want_review=true
         shift
         ;;
       -h|--help)
@@ -109,14 +117,14 @@ ghi() {
   if $no_agent; then
     _ghsb_focus_worktree_if_other "$(_ghsb_issue_space_label "$session_id")" \
       || cd "$worktree_path" || return 1
-    echo "No agent (--no-agent). When done: ghsb finish $session_id"
+    echo "No agent (--no-agent)."
     return 0
   fi
 
   local ai_prompt
-  ai_prompt=$(_ghsb_implement_prompt "$issue_number" "$issue_repo" "$branch_name" "$session_id" "$ai_tool")
+  ai_prompt=$(_ghsb_implement_prompt "$issue_number" "$issue_repo" "$branch_name" "$session_id" "$ai_tool" "$want_video" "$want_review")
   _ghsb_launch_in_current_space "ghi-${issue_number}" "$worktree_path" "$ai_tool" "$ai_prompt" "$session_id"
-  echo "When done: ghsb finish $session_id"
+  echo "When done: push + PR. Optional: ghsb finish [--video] [--review-fix] $session_id"
 }
 
 _ghi_help() {
@@ -127,7 +135,7 @@ Run from the repo root space (e.g. openstory). Creates a worktree grouped
 under the repo, switches you to it, and starts the agent there. Does not
 rename or cd this space.
 
-  ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] "Issue title"
+  ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] [--video] [--review-fix] "Issue title"
   ghi review <pr-number>     # same as ghipr
 
 Flags:
@@ -136,7 +144,9 @@ Flags:
   -i, --issue N     Develop existing issue
   -f, --fork        Issues on the fork (not upstream)
   --no-agent        Only create issue/branch/worktree (no agent)
+  --video           After PR, record a Playwright walkthrough (ghsb finish --video)
+  --review-fix      After PR, self-review and fix in this same agent
 
-Finish later with: ghsb finish
+Default wrap-up is push + PR only (no video, no auto-review).
 EOF
 }

@@ -142,6 +142,11 @@ hsplt() {
   echo "Workspace: $label  ($ws_id)"
   [[ -n "$wt_path" ]] && echo "Worktree:  $wt_path"
 
+  if _hsplt_ghostty_is_fullscreen; then
+    echo "Ghostty is full screen; exiting so the new window and Cursor share a desktop."
+    _hsplt_ghostty_exit_fullscreen
+  fi
+
   if ! $here; then
     local -a child=(--here)
     [[ -n "$remote" ]] && child+=(--remote "$remote")
@@ -210,44 +215,97 @@ spaces). Does not create a worktree or start an agent.
 Flags:
   -n, --new-window    New Ghostty window (default)
   --here              Use this terminal (PICK ME + attach here)
+                      If Ghostty is full screen, hsplt exits it first.
   -r, --remote HOST   Lookup/attach over SSH (Host or user@host)
   -s, --session NAME  Named Herdr session (HERDR_SESSION / --session)
   --pr                Treat the number as a PR
 EOF
 }
 
-# New Ghostty window that runs hsplt --here … (PICK ME + Cursor + attach).
-# Ghostty registers .command as a terminal script; `open -a` runs it in a new
-# surface. Do not keystroke into Cmd+N — those keys land in the Herdr pane.
+# True if any Ghostty window is in macOS full screen (own Space).
+_hsplt_ghostty_is_fullscreen() {
+  local fs
+  fs=$(osascript 2>/dev/null <<'OSA'
+tell application "System Events"
+  if not (exists process "Ghostty") then return "false"
+  tell process "Ghostty"
+    repeat with w in windows
+      try
+        if (value of attribute "AXFullScreen" of w) is true then return "true"
+      end try
+    end repeat
+  end tell
+end tell
+return "false"
+OSA
+) || return 1
+  [[ "$fs" == true ]]
+}
+
+_hsplt_ghostty_exit_fullscreen() {
+  osascript >/dev/null 2>&1 <<'OSA' || return 1
+tell application "System Events"
+  if not (exists process "Ghostty") then return
+  tell process "Ghostty"
+    set frontmost to true
+    repeat with w in windows
+      try
+        if (value of attribute "AXFullScreen" of w) is true then
+          set value of attribute "AXFullScreen" of w to false
+        end if
+      end try
+    end repeat
+  end tell
+end tell
+OSA
+  sleep 1
+}
+
+# New Ghostty window, then run `hsplt --here …` in that shell.
+# File → New Window (same app). Paste the command; do not type it (Herdr
+# swallows keystrokes) and do not open a .command file (shows up as /tmp).
 _hsplt_ghostty_window() {
   local dir="$1"
   shift
-  local launcher
-  launcher=$(mktemp "${TMPDIR:-/tmp}/hsplt.XXXXXX") || return 1
-  mv "$launcher" "$launcher.command" || return 1
-  launcher="$launcher.command"
-  {
-    print -r -- '#!/bin/zsh'
-    print -r -- 'unset HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID'
-    print -r -- 'export PATH="/opt/homebrew/bin:$HOME/.local/bin:/usr/local/bin:$PATH"'
-    print -r -- 'trap '\''rm -f -- "$0"'\'' EXIT'
-    print -r -- 'if [[ -d "$HOME/.zsh_functions" ]]; then'
-    print -r -- '  setopt NULL_GLOB'
-    print -r -- '  for f in "$HOME/.zsh_functions"/*.zsh; do'
-    print -r -- '    source "$f"'
-    print -r -- '  done'
-    print -r -- 'fi'
-    print -r -- "cd $(printf '%q' "$dir") || true"
-    print -rn -- 'hsplt '
-    printf '%q ' "$@"
-    print
-  } > "$launcher"
-  chmod +x "$launcher"
-  open -a Ghostty.app "$launcher" || {
-    echo "hsplt: could not open Ghostty. Run in this terminal:"
-    echo "  hsplt --here $(printf '%q ' "$@")"
+  local cmd prev
+  cmd="cd $(printf '%q' "$dir") && hsplt $(printf '%q ' "$@")"
+
+  if ! pgrep -i ghostty >/dev/null 2>&1; then
+    open -na Ghostty.app --args --working-directory="$dir" \
+      -e /bin/zsh -lic "$cmd" || {
+      echo "hsplt: could not open Ghostty. Run:"
+      echo "  $cmd"
+      return 1
+    }
+    return 0
+  fi
+
+  prev=$(pbpaste 2>/dev/null || true)
+  printf '%s' "$cmd" | pbcopy
+  if ! osascript >/dev/null <<'OSA'
+    tell application "Ghostty" to activate
+    delay 0.25
+    tell application "System Events"
+      tell process "Ghostty"
+        click menu item "New Window" of menu "File" of menu bar 1
+      end tell
+    end tell
+    delay 1.2
+    tell application "System Events" to keystroke "v" using command down
+    delay 0.1
+    tell application "System Events" to key code 36
+OSA
+  then
+    echo "hsplt: could not open a new Ghostty window. Run:"
+    echo "  $cmd"
+    printf '%s' "$prev" | pbcopy
     return 1
-  }
+  fi
+  (
+    sleep 1
+    printf '%s' "$prev" | pbcopy
+  ) &
+  echo "New Ghostty window: $cmd"
 }
 
 # herdr CLI against the local or remote server (not the TUI).

@@ -1,7 +1,7 @@
 # ghsb — GitHub issue → Herdr session → optional Cloudflare sandbox (Architecture A)
 # Usage:
-#   ghsb [-c] [-f] [-b <branch>] [-i <number>] [--local|--cf] "Issue title"
-#   ghsb finish [session-id|issue]
+#   ghsb [-c] [-f] [-b <branch>] [-i <number>] [--local|--cf] [--video] [--review-fix] "Issue title"
+#   ghsb finish [--video] [--review-fix] [session-id|issue]
 #   ghsb review <pr-number>   # same as ghsbpr
 #   ghsb status|attach|links|rm|list
 #
@@ -35,12 +35,13 @@ _ghsb_help() {
 ghsb — sandbox-oriented replacement for the ghwt session layer (Architecture A)
 
 Start a session (issue + branch + worktree + Herdr agent):
-  ghsb [-c] [-f] [-b <branch>] [-i <N>] [--local|--cf] "Issue title"
+  ghsb [-c] [-f] [-b <branch>] [-i <N>] [--local|--cf] [--video] [--review-fix] "Issue title"
 
 Subcommands:
-  ghsb finish [id]   After implementation: PR, Playwright video (if UI),
-                     ranked files, preview/dev links; review stays in
-                     this same grok/claude session
+  ghsb finish [--video] [--review-fix] [id]
+                     Push + PR + ranked files. --video records a
+                     Playwright walkthrough; --review-fix sends review
+                     to this same grok/claude session
   ghsb review <pr>   Review an existing PR (same space/agent if inside Herdr)
   ghsb status [id]   Show session metadata
   ghsb attach [id]   Attach Herdr agent pane (or print CF terminal URL)
@@ -58,24 +59,26 @@ Flags (start):
   --local           Force local worktree + Herdr only (default)
   --cf              Provision Cloudflare sandbox preview (needs GHSB_API_URL)
   --no-agent        Only create issue/branch/worktree/session (no agent)
+  --video           Tell the agent to record a preview video when done
+  --review-fix      Tell the agent to self-review and fix after the PR
 
 Env:
   GHSB_API_URL      Cloudflare Worker base URL (e.g. https://ghsb.you.workers.dev)
   GHSB_API_TOKEN    Optional bearer token for the Worker
   GHSB_HOME         State dir (default: ~/.ghsb)
 
-Finish pipeline:
+Finish pipeline (ghsb finish):
   1. Ensure branch is pushed and a PR exists
-  2. If user-facing files changed → Playwright video of preview/dev URL
-  3. Rank files for manual review
-  4. Prompt the existing grok/claude session to review (no new agent)
+  2. Rank files for manual review
+  3. --video: Playwright walkthrough if UI files changed
+  4. --review-fix: prompt the existing agent to review and fix
   5. Print PR, github.dev, dev env, and preview links
 EOF
 }
 
 _ghsb_start() {
   local base_branch="" issue_number="" branch_name="" target_fork=false
-  local backend="local" no_agent=false
+  local backend="local" no_agent=false want_video=false want_review=false
 
   while [[ "$1" == -* ]]; do
     case "$1" in
@@ -105,6 +108,14 @@ _ghsb_start() {
         ;;
       --no-agent)
         no_agent=true
+        shift
+        ;;
+      --video)
+        want_video=true
+        shift
+        ;;
+      --review-fix|--review)
+        want_review=true
         shift
         ;;
       -h|--help)
@@ -205,7 +216,7 @@ _ghsb_start() {
 
   # ── Agent prompt ──
   local ai_prompt
-  ai_prompt=$(_ghsb_implement_prompt "$issue_number" "$issue_repo" "$branch_name" "$session_id" "$ai_tool")
+  ai_prompt=$(_ghsb_implement_prompt "$issue_number" "$issue_repo" "$branch_name" "$session_id" "$ai_tool" "$want_video" "$want_review")
 
   if $no_agent; then
     echo "Session ready (no agent): $session_id"
@@ -248,7 +259,7 @@ _ghsb_start() {
 
   echo ""
   echo "Session: $session_id"
-  echo "When done: ghsb finish $session_id"
+  echo "When done: push + PR. Optional: ghsb finish [--video] [--review-fix] $session_id"
 }
 
 # ── Cloudflare API client ──
@@ -419,6 +430,29 @@ _ghsb_rm() {
 
 # ── Finish pipeline ──
 _ghsb_finish() {
+  local want_video=false want_review=false
+  while [[ $# -gt 0 && "$1" == -* ]]; do
+    case "$1" in
+      --video)
+        want_video=true
+        shift
+        ;;
+      --review|--review-fix)
+        want_review=true
+        shift
+        ;;
+      -h|--help)
+        echo "ghsb finish [--video] [--review-fix] [session-id]"
+        return 0
+        ;;
+      *)
+        echo "Unknown option: $1"
+        echo "Usage: ghsb finish [--video] [--review-fix] [session-id]"
+        return 1
+        ;;
+    esac
+  done
+
   local sid
   sid=$(_ghsb_resolve_session_id "${1:-}") || {
     echo "No session found. Pass session id or run from worktree."
@@ -532,12 +566,12 @@ Implemented via ghsb session \`${sid}\`." \
   fi
 
   local video_path=""
-  if $facing; then
+  if $want_video && $facing; then
     local record_url="${preview_url:-$dev_url}"
     if [[ -z "$record_url" ]]; then
       echo "→ User-facing changes detected, but no preview/dev URL yet."
       echo "  Start a preview (or set session preview_url), then re-run:"
-      echo "    ghsb finish $sid"
+      echo "    ghsb finish --video $sid"
       local scripts_hint
       scripts_hint=$(_ghsb_scripts_dir 2>/dev/null || echo "~/code/dotfiles/scripts")
       echo "  Or record manually:"
@@ -559,8 +593,10 @@ Implemented via ghsb session \`${sid}\`." \
         echo "  Script missing: ghsb-record-preview.mjs (looked in ${scripts_dir:-?})"
       fi
     fi
-  else
+  elif $want_video; then
     echo "→ No user-facing file changes detected; skipping Playwright video."
+  else
+    echo "→ Skipping Playwright video (pass --video to record)."
   fi
 
   # Write finish summary
@@ -604,15 +640,22 @@ Also read ${art}/SUMMARY.md and ${art}/files-to-review.txt. Prioritise the ranke
     [[ -n "$here_agent" ]] && review_target="$here_agent"
   fi
 
-  if [[ -n "$review_target" ]]; then
-    echo "→ Sending review to existing agent ($review_target) — no new space."
-    _ghsb_herdr_send_prompt "$review_target" "$review_prompt" || true
-    _ghsb_session_set "$sid" "review_pane" "${session_pane:-${HERDR_PANE_ID:-}}"
-    _ghsb_session_set "$sid" "review_agent" "${session_agent:-$review_target}"
+  if $want_review; then
+    review_prompt="${review_prompt}
+
+Fix any issues you find. Stay in this session."
+    if [[ -n "$review_target" ]]; then
+      echo "→ Sending review-fix to existing agent ($review_target) — no new space."
+      _ghsb_herdr_send_prompt "$review_target" "$review_prompt" || true
+      _ghsb_session_set "$sid" "review_pane" "${session_pane:-${HERDR_PANE_ID:-}}"
+      _ghsb_session_set "$sid" "review_agent" "${session_agent:-$review_target}"
+    else
+      echo "→ Review-fix in this same agent (not launching a new one):"
+      echo "    ${review_skill} ${pr}"
+      echo "    read ${art}/SUMMARY.md and ${art}/files-to-review.txt"
+    fi
   else
-    echo "→ Review in this same agent (not launching a new one):"
-    echo "    ${review_skill} ${pr}"
-    echo "    read ${art}/SUMMARY.md and ${art}/files-to-review.txt"
+    echo "→ Skipping agent review (pass --review-fix to send it)."
   fi
 
   _ghsb_print_links "$repo" "$branch" "$pr" "$preview_url" "$dev_url" "$worktree"
@@ -623,5 +666,5 @@ Also read ${art}/SUMMARY.md and ${art}/files-to-review.txt. Prioritise the ranke
     echo "Video:     $video_path"
   fi
   echo ""
-  echo "Done. Review stays in this session. Attach: ghsb attach $sid"
+  echo "Done. Attach: ghsb attach $sid"
 }

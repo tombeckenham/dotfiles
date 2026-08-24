@@ -1253,24 +1253,32 @@ _ghsb_launch_in_current_space() {
 }
 
 # Shared implement prompt for ghsb / ghi agents.
+# Optional 6th/7th args: want_video want_review ("true"/"false"). Default: push + PR only.
 _ghsb_implement_prompt() {
   local issue_number="$1" issue_repo="$2" branch_name="$3" session_id="$4"
   local ai_tool="${5:-}"
+  local want_video="${6:-false}" want_review="${7:-false}"
   local review_skill="/pr-review-toolkit:review-pr"
   [[ "$ai_tool" == "grok" ]] && review_skill="/review-pr"
   local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
-  local finish_cmd="ghsb finish ${session_id}"
+  local wrap step=3
+  wrap="When implementation is complete:
+1. Push the branch
+2. Open a PR if one does not exist (gh pr create), linking issue #${issue_number}"
+  if [[ "$want_video" == true ]]; then
+    wrap+=$'\n'"${step}. Run: ghsb finish --video ${session_id}
+   Records a Playwright walkthrough if UI files changed. Stay in this session."
+    step=$((step + 1))
+  fi
+  if [[ "$want_review" == true ]]; then
+    wrap+=$'\n'"${step}. Review the PR here: ${review_skill} <pr-number>
+   Fix any issues you find. Stay in this session — do not start another agent."
+  fi
   printf '%s\n' "Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or lacks context, ask me what to accomplish and any constraints, then update the issue via 'gh issue edit ${issue_number} -R ${issue_repo}' before coding.
 
 Work in this worktree. Commit on branch ${branch_name} and push to origin regularly.
 
-When implementation is complete:
-1. Push the branch
-2. Open a PR if one does not exist (gh pr create), linking issue #${issue_number}
-3. Run: ${finish_cmd}
-   That writes ranked files and an optional Playwright video. Stay in this session — do not start another agent or Herdr space.
-4. Review the PR yourself here: ${review_skill} <pr-number>
-   Read the SUMMARY.md and files-to-review.txt that finish printed, and prioritise the ranked files."
+${wrap}"
 }
 
 # OSC-8 hyperlink when stdout is a TTY (Ghostty/iTerm/etc). Herdr Ctrl-click also

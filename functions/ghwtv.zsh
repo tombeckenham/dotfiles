@@ -1,5 +1,5 @@
 # ghwtv — same issue + worktree as ghwt, agent in Herdr (no editor by default)
-# Usage: ghwtv [-c] [-f] [-b <branch>] [-i <number>] [--tode] "Issue title"
+# Usage: ghwtv [-c] [-f] [-b <branch>] [-i <number>] [--tode] [--video] [--review-fix] "Issue title"
 #        ghwtv -e <number>   # open existing worktree/branch for review
 #
 # Does not start terminal-code/tode unless --tode.
@@ -12,7 +12,7 @@ _ghwtv_help() {
   cat <<'EOF'
 ghwtv — issue + Herdr worktree + agent (no editor)
 
-  ghwtv [-c] [-f] [-b <branch>] [-i <N>] [--tode] "Issue title"
+  ghwtv [-c] [-f] [-b <branch>] [-i <N>] [--tode] [--video] [--review-fix] "Issue title"
   ghwtv -e <N>
 
 Flags:
@@ -22,9 +22,12 @@ Flags:
   -e, --existing N  Open existing worktree/branch for issue N
   -f, --fork        Issues on the fork (not upstream)
   --tode            Also split and open terminal-code (tode)
+  --video           After PR, record a Playwright walkthrough
+  --review-fix      After PR, self-review and fix in this same agent
   -h, --help        Show this help
 
 Does not run terminal-code unless --tode.
+Default wrap-up is push + PR only (no video, no auto-review).
 Inside Herdr: starts grok/claude in this pane once the shell is idle.
 Outside Herdr: uses the worktree workspace and prints `herdr` so you can attach.
 EOF
@@ -205,7 +208,7 @@ _ghwtv_existing() {
 
 ghwtv() {
   local base_branch="" issue_number="" branch_name="" target_fork=false existing_mode=false
-  local with_tode=false
+  local with_tode=false want_video=false want_review=false
 
   while [[ "$1" == -* ]]; do
     case "$1" in
@@ -232,6 +235,14 @@ ghwtv() {
         ;;
       --tode)
         with_tode=true
+        shift
+        ;;
+      --video)
+        want_video=true
+        shift
+        ;;
+      --review-fix|--review)
+        want_review=true
         shift
         ;;
       -h|--help)
@@ -276,9 +287,32 @@ ghwtv() {
   local worktree_path="${GHSB_CHECKOUT[worktree]}"
   issue_repo="${GHSB_CHECKOUT[repo]}"
 
-  local ai_tool prompt
+  local ai_tool prompt session_id
+  session_id="${GHSB_CHECKOUT[session_id]}"
+  local session_json
+  session_json=$(jq -n \
+    --arg id "$session_id" \
+    --argjson issue "$issue_number" \
+    --arg branch "${GHSB_CHECKOUT[branch]}" \
+    --arg repo "$issue_repo" \
+    --arg origin "${GHSB_CHECKOUT[origin]}" \
+    --arg worktree "$worktree_path" \
+    --arg ai "$(_ghsb_pick_ai "$issue_number")" \
+    --arg base "${GHSB_CHECKOUT[default_branch]}" \
+    --arg pane "${GHSB_CHECKOUT[herdr_pane]:-}" \
+    --arg workspace "${GHSB_CHECKOUT[herdr_workspace]:-}" \
+    --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{
+      id: $id, issue: $issue, pr: null, branch: $branch, repo: $repo,
+      origin: $origin, worktree: $worktree, backend: "local", ai_tool: $ai,
+      base_branch: $base, sandbox_id: "", preview_url: "", dev_url: "",
+      terminal_url: "", herdr_pane: $pane, herdr_agent: "",
+      herdr_workspace: $workspace, review_pane: "", review_agent: "",
+      created_at: $created, finished_at: null
+    }')
+  _ghsb_write_session "$session_id" "$session_json"
   ai_tool=$(_ghsb_pick_ai "$issue_number")
-  prompt=$(_ghwtv_implement_prompt "$issue_number" "$issue_repo")
+  prompt=$(_ghsb_implement_prompt "$issue_number" "$issue_repo" "${GHSB_CHECKOUT[branch]}" "$session_id" "$ai_tool" "$want_video" "$want_review")
   echo "Worktree: $worktree_path"
   _ghwtv_launch "$worktree_path" "ghwtv-${issue_number}" "$ai_tool" "$prompt" "$with_tode"
 }
