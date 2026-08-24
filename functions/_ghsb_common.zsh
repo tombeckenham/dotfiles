@@ -179,8 +179,12 @@ typeset -gA GHSB_HERDR_WT
 
 _ghsb_herdr_wt_parse() {
   local json="$1"
-  GHSB_HERDR_WT[workspace_id]=$(printf '%s\n' "$json" | jq -r '.result.workspace.workspace_id // empty')
-  GHSB_HERDR_WT[pane_id]=$(printf '%s\n' "$json" | jq -r '.result.root_pane.pane_id // empty')
+  GHSB_HERDR_WT[workspace_id]=$(printf '%s\n' "$json" | jq -r \
+    '.result.workspace.workspace_id
+     // .result.worktree.open_workspace_id
+     // .workspace_id // empty')
+  GHSB_HERDR_WT[pane_id]=$(printf '%s\n' "$json" | jq -r \
+    '.result.root_pane.pane_id // .result.pane.pane_id // empty')
   GHSB_HERDR_WT[path]=$(printf '%s\n' "$json" | jq -r \
     '.result.workspace.worktree.checkout_path // .result.worktree.path // empty')
   if [[ -z "${GHSB_HERDR_WT[pane_id]}" && -n "${GHSB_HERDR_WT[workspace_id]}" ]]; then
@@ -266,31 +270,48 @@ _ghsb_herdr_wt_find_issue() {
   return 1
 }
 
-# Best-effort: open an existing git checkout as a Herdr worktree workspace.
-# Always sets GHSB_HERDR_WT[path]. Herdr registration is optional so Cursor
-# commands still work outside a Herdr TUI / if `herdr` is not on PATH.
+# Open an existing git checkout as a Herdr worktree workspace.
+# Always sets GHSB_HERDR_WT[path]. When Herdr is up, also sets workspace_id
+# (worktree open, then workspace create if open did not yield a space).
 _ghsb_herdr_wt_register_path() {
   local repo_root="$1" wt_path="$2" label="$3"
   GHSB_HERDR_WT[path]="$wt_path"
   command -v herdr >/dev/null 2>&1 || return 0
   herdr workspace list >/dev/null 2>&1 || return 0
-  local listing ws
+  local listing ws out
   listing=$(_ghsb_herdr_wt_list "$repo_root") || listing=""
   ws=$(printf '%s\n' "$listing" | jq -r --arg p "$wt_path" '
-    .result.worktrees[] | select(.path == $p) | .open_workspace_id // empty
+    .result.worktrees[]? | select(.path == $p) | .open_workspace_id // empty
   ' | head -1)
   if [[ -n "$ws" && "$ws" != "null" ]]; then
     _ghsb_herdr_wt_from_open_id "$ws" "$wt_path"
+    _ghsb_herdr_wt_rename_open "$label"
     return 0
   fi
-  local out
   out=$(herdr worktree open --cwd "$repo_root" --path "$wt_path" --label "$label" --no-focus 2>&1) || {
     echo "herdr worktree open skipped: $out" >&2
-    GHSB_HERDR_WT[path]="$wt_path"
-    return 0
+    out=""
   }
-  _ghsb_herdr_wt_parse "$out"
+  [[ -n "$out" ]] && _ghsb_herdr_wt_parse "$out"
+  if [[ -z "${GHSB_HERDR_WT[workspace_id]:-}" ]]; then
+    listing=$(_ghsb_herdr_wt_list "$repo_root") || listing=""
+    ws=$(printf '%s\n' "$listing" | jq -r --arg p "$wt_path" '
+      .result.worktrees[]? | select(.path == $p) | .open_workspace_id // empty
+    ' | head -1)
+    if [[ -n "$ws" && "$ws" != "null" ]]; then
+      _ghsb_herdr_wt_from_open_id "$ws" "$wt_path"
+    fi
+  fi
+  if [[ -z "${GHSB_HERDR_WT[workspace_id]:-}" ]]; then
+    out=$(herdr workspace create --cwd "$wt_path" --label "$label" --no-focus 2>&1) || {
+      echo "herdr workspace create failed: $out" >&2
+      GHSB_HERDR_WT[path]="$wt_path"
+      return 0
+    }
+    _ghsb_herdr_wt_parse "$out"
+  fi
   [[ -n "${GHSB_HERDR_WT[path]}" ]] || GHSB_HERDR_WT[path]="$wt_path"
+  _ghsb_herdr_wt_rename_open "$label"
 }
 
 # Create or open a worktree for an existing local branch.
@@ -1204,10 +1225,29 @@ _ghsb_launch_in_current_space() {
   local wt_ws="${GHSB_CHECKOUT[herdr_workspace]:-}"
   local wt_pane="${GHSB_CHECKOUT[herdr_pane]:-}"
 
+  if [[ -z "$wt_ws" && -n "$worktree" && -d "$worktree" ]]; then
+    local repo_root=""
+    repo_root=$(dirname "$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)") || repo_root=""
+    if [[ -n "$repo_root" ]]; then
+      _ghsb_herdr_wt_register_path "$repo_root" "$worktree" "$space_label"
+      wt_ws="${GHSB_HERDR_WT[workspace_id]:-}"
+      wt_pane="${GHSB_HERDR_WT[pane_id]:-}"
+      GHSB_CHECKOUT[herdr_workspace]="$wt_ws"
+      GHSB_CHECKOUT[herdr_pane]="$wt_pane"
+    fi
+  fi
+
   if _ghsb_focus_worktree_if_other "$space_label"; then
     pane_id="${wt_pane:-$pane_id}"
     workspace_id="$wt_ws"
+  elif [[ -n "$wt_ws" && "$wt_ws" == "$workspace_id" ]]; then
+    herdr workspace rename "$workspace_id" "$space_label" >/dev/null 2>&1 || true
+    cd "$worktree" || return 1
+  elif [[ -n "$wt_ws" ]]; then
+    echo "Could not focus worktree space $wt_ws" >&2
+    return 1
   else
+    echo "No Herdr workspace for worktree $worktree; starting the agent in this pane." >&2
     herdr workspace rename "$workspace_id" "$space_label" >/dev/null 2>&1 || true
     cd "$worktree" || return 1
   fi
