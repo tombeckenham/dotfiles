@@ -117,6 +117,8 @@ ghi() {
   if $no_agent; then
     _ghsb_focus_worktree_if_other "$(_ghsb_issue_space_label "$session_id")" \
       || cd "$worktree_path" || return 1
+    _ghsb_open_reviewr "${GHSB_CHECKOUT[herdr_pane]:-}" "$worktree_path" \
+      "${GHSB_CHECKOUT[herdr_workspace]:-}"
     echo "No agent (--no-agent)."
     return 0
   fi

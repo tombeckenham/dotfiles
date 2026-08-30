@@ -39,29 +39,6 @@ _ghwtprv_ensure_reviewr() {
   fi
 }
 
-# Open reviewr as a right split on <pane_id>, pointed at <worktree>.
-# Prints the new pane id on stdout when herdr returns one.
-_ghwtprv_open_reviewr() {
-  local pane_id="$1" worktree="$2"
-  [[ -n "$pane_id" && -n "$worktree" ]] || return 1
-
-  local open_out new_pane
-  open_out=$(herdr plugin pane open --plugin persiyanov.reviewr --entrypoint pane \
-    --placement split --direction right \
-    --target-pane "$pane_id" --cwd "$worktree" --no-focus 2>&1) || {
-    echo "herdr plugin pane open (reviewr) failed: $open_out" >&2
-    echo "If the plugin is missing: herdr plugin install persiyanov/herdr-reviewr" >&2
-    return 1
-  }
-  new_pane=$(printf '%s\n' "$open_out" | jq -r '.result.plugin_pane.pane.pane_id // empty' 2>/dev/null)
-  if [[ -z "$new_pane" ]]; then
-    echo "Could not parse .result.plugin_pane.pane.pane_id from reviewr open:" >&2
-    echo "$open_out" >&2
-    return 1
-  fi
-  printf '%s\n' "$new_pane"
-}
-
 # Open reviewr beside the agent pane and start the review agent.
 _ghwtprv_launch() {
   local worktree="$1" label="$2" ai_tool="$3" prompt="$4"
@@ -71,8 +48,7 @@ _ghwtprv_launch() {
     echo "Inside Herdr; opening reviewr beside this pane."
     agent_pane="${HERDR_PANE_ID}"
     workspace_id="${HERDR_WORKSPACE_ID}"
-    reviewr_pane=$(_ghwtprv_open_reviewr "$agent_pane" "$worktree") || return 1
-    echo "reviewr pane: $reviewr_pane"
+    _ghsb_open_reviewr "$agent_pane" "$worktree" "$workspace_id"
     cd "$worktree" || return 1
 
     local current_agent=""
@@ -115,9 +91,8 @@ _ghwtprv_launch() {
     return 1
   fi
 
-  reviewr_pane=$(_ghwtprv_open_reviewr "$agent_pane" "$worktree") || return 1
+  _ghsb_open_reviewr "$agent_pane" "$worktree" "$workspace_id"
   echo "Herdr workspace: $workspace_id"
-  echo "reviewr pane:    $reviewr_pane"
   echo "agent pane:      $agent_pane"
 
   local launch_line

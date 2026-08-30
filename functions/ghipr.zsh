@@ -1,12 +1,12 @@
 # ghipr — review a GitHub PR in the current Herdr space
-# Usage: ghipr [-i] [--no-agent] <pr-number>
+# Usage: ghipr [-i] [--no-agent] [--no-focus] <pr-number>
 #        ghi review <pr-number>
 #
 # Same checkout as ghsbpr (PR worktree + ranked files). From the repo root
 # space, creates the PR worktree, switches you to it, and starts the review
 # agent there. Does not rename or cd this space.
 ghipr() {
-  local pr_number="" no_agent=false
+  local pr_number="" no_agent=false no_focus=false
 
   while [[ "$1" == -* ]]; do
     case "$1" in
@@ -16,6 +16,10 @@ ghipr() {
         ;;
       --no-agent)
         no_agent=true
+        shift
+        ;;
+      --no-focus)
+        no_focus=true
         shift
         ;;
       -h|--help)
@@ -104,15 +108,21 @@ ghipr() {
   echo "Artifacts: $art"
 
   if $no_agent; then
-    _ghsb_focus_worktree_if_other "$(_ghsb_issue_space_label "$session_id")" \
-      || cd "$worktree_path" || return 1
+    if ! $no_focus; then
+      _ghsb_focus_worktree_if_other "$(_ghsb_issue_space_label "$session_id")" \
+        || cd "$worktree_path" || return 1
+    fi
+    _ghsb_open_reviewr "${GHSB_CHECKOUT[herdr_pane]:-}" "$worktree_path" \
+      "${GHSB_CHECKOUT[herdr_workspace]:-}"
     echo "No agent (--no-agent)."
     return 0
   fi
 
   local review_prompt
   review_prompt=$(_ghsb_pr_review_prompt "$ai_tool")
-  _ghsb_launch_in_current_space "ghi-review-${pr_number}" "$worktree_path" "$ai_tool" "$review_prompt" "$session_id" --review
+  local -a launch_flags=(--review)
+  $no_focus && launch_flags+=(--no-focus)
+  _ghsb_launch_in_current_space "ghi-review-${pr_number}" "$worktree_path" "$ai_tool" "$review_prompt" "$session_id" "${launch_flags[@]}"
 }
 
 _ghipr_help() {
@@ -123,14 +133,16 @@ Run from the repo root space. Creates a PR worktree grouped under the repo,
 switches you to it, and starts the review agent there. Does not rename or
 cd this space.
 
-  ghipr [-i] [--no-agent] <pr-number>
+  ghipr [-i] [--no-agent] [--no-focus] <pr-number>
   ghi review <pr-number>     # same
 
 Flags:
   -i, --issue N     Optional flag before PR number
   --no-agent        Checkout + rank files only (no agent)
+  --no-focus        Do not switch this pane to the PR worktree
+                    (used by ghiprs so several reviews can start at once)
 
 Same checkout as ghsbpr (PR worktree, ranked files, review prompt).
-The review agent starts in this space.
+The review agent starts in this space unless --no-focus.
 EOF
 }

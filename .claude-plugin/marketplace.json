@@ -1,0 +1,20 @@
+{
+  "name": "dotfiles",
+  "owner": {
+    "name": "Tom Beckenham",
+    "url": "https://github.com/tombeckenham"
+  },
+  "metadata": {
+    "description": "Herdr GitHub workflow skills: ghi, ghipr, ghwtb, ghiprs",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "ghsb",
+      "description": "Call ghi/ghipr/ghwtb from Grok or Claude, and fan out ghipr for every assigned PR without a session.",
+      "source": "./plugins/ghsb",
+      "category": "development",
+      "tags": ["herdr", "github", "worktree", "review"]
+    }
+  ]
+}

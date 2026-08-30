@@ -384,6 +384,7 @@ _ghsb_herdr_wt_ensure_branch() {
       return 1
     fi
     echo "Worktree created at: ${GHSB_HERDR_WT[path]}"
+    GHSB_HERDR_WT[created]=1
     _worktree_setup "${GHSB_HERDR_WT[path]}"
     _ghsb_herdr_wt_rename_open "$label"
     return 0
@@ -412,6 +413,7 @@ _ghsb_herdr_wt_apply_checkout() {
   GHSB_CHECKOUT[worktree]="${GHSB_HERDR_WT[path]}"
   GHSB_CHECKOUT[herdr_workspace]="${GHSB_HERDR_WT[workspace_id]}"
   GHSB_CHECKOUT[herdr_pane]="${GHSB_HERDR_WT[pane_id]}"
+  GHSB_CHECKOUT[herdr_wt_created]="${GHSB_HERDR_WT[created]:-}"
 }
 
 # Wait until a pane's foreground process is an interactive shell.
@@ -684,6 +686,7 @@ _ghsb_herdr_launch() {
   pane_id="${GHSB_CHECKOUT[herdr_pane]:-}"
   workspace_id="${GHSB_CHECKOUT[herdr_workspace]:-}"
   if [[ -n "$pane_id" && -n "$workspace_id" ]]; then
+    _ghsb_open_reviewr "$pane_id" "$worktree" "$workspace_id"
     _ghsb_herdr_launch_in_pane "$pane_id" "$workspace_id" "$label" "$worktree" "$ai_tool" "$prompt"
     return $?
   fi
@@ -704,6 +707,7 @@ _ghsb_herdr_launch() {
     return 1
   fi
 
+  _ghsb_open_reviewr "$pane_id" "$worktree" "$workspace_id"
   _ghsb_herdr_launch_in_pane "$pane_id" "$workspace_id" "$label" "$worktree" "$ai_tool" "$prompt"
 }
 
@@ -1204,14 +1208,108 @@ _ghsb_focus_worktree_if_other() {
   return 0
 }
 
+# Print the first pane in <workspace> whose foreground process is herdr-reviewr.
+# Pane titles are display-only and usually empty, so title matching misses these.
+_ghsb_find_reviewr_pane() {
+  local workspace_id="$1" pane_ids p info count
+  [[ -n "$workspace_id" ]] || return 1
+  pane_ids=$(herdr pane list --workspace "$workspace_id" 2>/dev/null \
+    | jq -r '.result.panes[]?.pane_id // empty')
+  [[ -n "$pane_ids" ]] || return 1
+  while IFS= read -r p; do
+    [[ -n "$p" ]] || continue
+    info=$(herdr pane process-info --pane "$p" 2>/dev/null) || continue
+    count=$(printf '%s\n' "$info" | jq -r '
+      def base: split("/") | last;
+      [.result.process_info.foreground_processes[]?
+        | select((((.argv0 // "") | base) == "herdr-reviewr")
+              or ((((.argv // [])[0] // "") | base) == "herdr-reviewr"))
+        | select(((.argv // []) | index("--resolve-plugin-config")) == null)]
+      | length
+    ' 2>/dev/null) || continue
+    if [[ "$count" -gt 0 ]] 2>/dev/null; then
+      printf '%s\n' "$p"
+      return 0
+    fi
+  done <<< "$pane_ids"
+  return 1
+}
+
+# Open herdr-reviewr as a right split on <pane_id> at <worktree>. No-op if a
+# reviewr pane is already in that workspace (including the plugin's
+# worktree.created auto-open). Never fails the caller.
+_ghsb_open_reviewr() {
+  local pane_id="$1" worktree="$2" workspace_id="${3:-}"
+  [[ -n "$pane_id" && -n "$worktree" ]] || return 0
+  command -v herdr >/dev/null 2>&1 || return 0
+  herdr plugin list --plugin persiyanov.reviewr >/dev/null 2>&1 || {
+    echo "reviewr plugin not installed; skip. herdr plugin install persiyanov/herdr-reviewr" >&2
+    return 0
+  }
+  local existing=""
+  existing=$(_ghsb_find_reviewr_pane "$workspace_id") || existing=""
+  # New herdr worktrees already get a pane from persiyanov.reviewr auto-open.
+  # Wait for that process before opening another (title matching never sees it).
+  if [[ -z "$existing" && (
+          "${GHSB_CHECKOUT[herdr_wt_created]:-}" == 1 ||
+          "${GHSB_HERDR_WT[created]:-}" == 1
+        ) ]]; then
+    local elapsed=0
+    while (( elapsed < 2000 )); do
+      sleep 0.2
+      elapsed=$((elapsed + 200))
+      existing=$(_ghsb_find_reviewr_pane "$workspace_id") || existing=""
+      [[ -n "$existing" ]] && break
+    done
+  fi
+  if [[ -n "$existing" ]]; then
+    echo "reviewr pane: $existing (already open)" >&2
+    return 0
+  fi
+  local open_out new_pane
+  open_out=$(herdr plugin pane open --plugin persiyanov.reviewr --entrypoint pane \
+    --placement split --direction right \
+    --target-pane "$pane_id" --cwd "$worktree" --no-focus 2>&1) || {
+    echo "reviewr open skipped: $open_out" >&2
+    return 0
+  }
+  new_pane=$(printf '%s\n' "$open_out" | jq -r \
+    '.result.plugin_pane.pane.pane_id // .result.pane.pane_id // empty' 2>/dev/null)
+  if [[ -n "$new_pane" ]]; then
+    echo "reviewr pane: $new_pane" >&2
+  fi
+  return 0
+}
+
+# True if this repo already has a ghsb session for PR <n>.
+_ghsb_pr_session_exists() {
+  local pr="$1" repo_root repo_name f
+  [[ "$pr" =~ ^[0-9]+$ ]] || return 1
+  repo_root=$(_ghsb_repo_root) || return 1
+  repo_name=$(basename "$repo_root")
+  [[ -f "$(_ghsb_session_path "${repo_name}-pr-${pr}")" ]] && return 0
+  _ghsb_init_dirs
+  for f in "$GHSB_SESSIONS_DIR"/*.json; do
+    [[ -f "$f" ]] || continue
+    jq -e --arg n "$pr" --arg prefix "${repo_name}-" \
+      '((.pr | tostring) == $n) and ((.id // "") | startswith($prefix))' \
+      "$f" >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+
 # Start an agent in the worktree's Herdr space. From the repo root, that means
 # focusing the grouped worktree (does not rename or cd this space). If this
 # pane already is that space and has an agent, the prompt goes there.
-# Usage: _ghsb_launch_in_current_space <label> <worktree> <ai_tool> <prompt> <session_id> [--review]
+# Usage: _ghsb_launch_in_current_space <label> <worktree> <ai_tool> <prompt> <session_id> [--review] [--no-focus]
 _ghsb_launch_in_current_space() {
   local label="$1" worktree="$2" ai_tool="$3" prompt="$4" session_id="$5"
-  local as_review=false
-  [[ "${6:-}" == "--review" ]] && as_review=true
+  local as_review=false skip_focus=false
+  local _flag
+  for _flag in "${@:6}"; do
+    [[ "$_flag" == "--review" ]] && as_review=true
+    [[ "$_flag" == "--no-focus" ]] && skip_focus=true
+  done
 
   local pane_id="${HERDR_PANE_ID:-}"
   local workspace_id="${HERDR_WORKSPACE_ID:-}"
@@ -1237,7 +1335,11 @@ _ghsb_launch_in_current_space() {
     fi
   fi
 
-  if _ghsb_focus_worktree_if_other "$space_label"; then
+  if $skip_focus && [[ -n "$wt_ws" ]]; then
+    pane_id="${wt_pane:-$pane_id}"
+    workspace_id="$wt_ws"
+    herdr workspace rename "$workspace_id" "$space_label" >/dev/null 2>&1 || true
+  elif _ghsb_focus_worktree_if_other "$space_label"; then
     pane_id="${wt_pane:-$pane_id}"
     workspace_id="$wt_ws"
   elif [[ -n "$wt_ws" && "$wt_ws" == "$workspace_id" ]]; then
@@ -1253,6 +1355,7 @@ _ghsb_launch_in_current_space() {
   fi
   _ghsb_session_set "$session_id" "herdr_pane" "$pane_id"
   _ghsb_session_set "$session_id" "herdr_workspace" "$workspace_id"
+  _ghsb_open_reviewr "$pane_id" "$worktree" "$workspace_id"
 
   local current_agent=""
   current_agent=$(_ghsb_pane_agent "$pane_id") || current_agent=""

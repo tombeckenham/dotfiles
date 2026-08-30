@@ -108,6 +108,7 @@ _ghwtv_launch() {
       workspace_id="${HERDR_WORKSPACE_ID}"
       cd "$worktree" || return 1
     fi
+    _ghsb_open_reviewr "$agent_pane" "$worktree" "$workspace_id"
     if [[ "$with_tode" == true ]]; then
       echo "Inside Herdr; splitting worktree pane for tode."
       tode_pane=$(_ghwtv_split_tode "$agent_pane" "$worktree") || return 1
@@ -154,6 +155,7 @@ _ghwtv_launch() {
     return 1
   fi
 
+  _ghsb_open_reviewr "$agent_pane" "$worktree" "$workspace_id"
   if [[ "$with_tode" == true ]]; then
     tode_pane=$(_ghwtv_split_tode "$agent_pane" "$worktree") || return 1
     echo "tode pane:       $tode_pane"

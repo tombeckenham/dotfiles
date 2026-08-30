@@ -91,16 +91,30 @@ Same checkout as `ghsbpr` (PR Herdr worktree + ranked files + review prompt), bu
 ghipr <pr-number>
 ghi review <pr-number>   # same
 ghipr --no-agent 42      # checkout + rank files only
+ghipr --no-focus 42      # start the review without switching this pane
 ```
 
 What it does:
 
 1. Requires `HERDR_PANE_ID` — run it from inside Herdr.
 2. Checks out the PR into a Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}` (same as `ghsbpr` / `ghwtpr`), including fork PRs via `gh pr checkout`.
-3. Ranks changed files, writes a review session, `cd`s this shell into the worktree, and renames the current space to `{repo}-pr-{N}`.
-4. Starts grok/claude with `/review-pr` (or `/pr-review-toolkit:review-pr`) in this pane once the shell is idle. If this pane already has an agent, the review prompt goes to that agent (same space).
+3. Ranks changed files, writes a review session, focuses the PR worktree space (repo root stays as-is), and opens herdr-reviewr in a right split.
+4. Starts grok/claude with `/review-pr` (or `/pr-review-toolkit:review-pr`) in the worktree pane once the shell is idle.
 
 Source: `functions/ghipr.zsh`.
+
+### `ghiprs` — review every assigned PR with no session
+
+From the repo root Herdr space. For each open PR assigned to you that does not already have a `ghsb` session, runs `ghipr --no-focus` (worktree + herdr-reviewr + review agent). This pane stays on the repo root.
+
+```sh
+ghiprs            # start reviews
+ghiprs --dry-run  # print start/skip only
+```
+
+Skip rule: `~/.ghsb/sessions/{repo}-pr-{N}.json` exists, or any `{repo}-*` session whose `pr` field is that number.
+
+Source: `functions/ghiprs.zsh`.
 
 ### `ghsbpr` / `ghsb review` — PR review in Herdr
 
@@ -317,6 +331,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
     ├── ghsbpr.zsh
     ├── ghi.zsh
     ├── ghipr.zsh
+    ├── ghiprs.zsh
     ├── _ghsb_common.zsh
     ├── ghwt.zsh
     ├── ghwtv.zsh
@@ -331,6 +346,28 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
     ├── _worktree_setup.zsh
     └── _cursor_tile_left.zsh
 ```
+
+## Agent skills (marketplace)
+
+This repo is a Grok / Claude Code marketplace. The `ghsb` plugin exposes `/ghi`, `/ghipr`, `/ghwtb`, and `/ghiprs` so an agent can call those functions (they live in `~/.zsh_functions` via `bootstrap.sh`; a non-interactive shell will not have them unless it uses the plugin runner).
+
+```sh
+# Grok
+grok plugin marketplace add tombeckenham/dotfiles
+grok plugin install ghsb --trust
+
+# Claude Code
+claude plugin marketplace add tombeckenham/dotfiles
+claude plugin install ghsb@dotfiles
+```
+
+Local checkout instead of GitHub:
+
+```sh
+grok plugin marketplace add ~/code/dotfiles
+```
+
+`/ghiprs` is the fan-out: every open PR assigned to you with no ghsb session gets its own worktree and review agent, without leaving the current pane.
 
 ## Caveats / forking notes
 

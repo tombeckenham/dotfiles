@@ -1,0 +1,20 @@
+#!/usr/bin/env zsh
+# Load ~/.zsh_functions then exec the remaining argv (ghi, ghipr, ghwtb, ghiprs, …).
+# Agents should call this instead of a bare `ghi` — bash and non-interactive zsh
+# do not source those functions.
+if [[ $# -eq 0 ]]; then
+  echo "Usage: run <ghi|ghipr|ghiprs|ghwtb|…> [args…]" >&2
+  exit 1
+fi
+fn="${HOME}/.zsh_functions"
+if [[ ! -d "$fn" ]]; then
+  echo "Missing $fn — install tombeckenham/dotfiles (bootstrap.sh) so ghi exists." >&2
+  exit 1
+fi
+source "$fn/_ghsb_common.zsh"
+source "$fn/_worktree_setup.zsh"
+for f in "$fn"/*.zsh; do
+  [[ "$f" == */_ghsb_common.zsh || "$f" == */_worktree_setup.zsh ]] && continue
+  source "$f"
+done
+"$@"
