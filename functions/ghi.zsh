@@ -114,12 +114,20 @@ ghi() {
   echo "Worktree: $worktree_path"
   echo "Session:  $session_id"
 
+  local skip_agent=false
   if $no_agent; then
+    skip_agent=true
+  elif ! _ghsb_issue_body_ready "$issue_number" "$issue_repo"; then
+    skip_agent=true
+    echo "Issue #${issue_number} has an empty body; worktree is ready, agent not started."
+    echo "Fill the issue, then: ghi -i ${issue_number}"
+  fi
+  if $skip_agent; then
     _ghsb_focus_worktree_if_other "$(_ghsb_issue_space_label "$session_id")" \
       || cd "$worktree_path" || return 1
     _ghsb_open_reviewr "${GHSB_CHECKOUT[herdr_pane]:-}" "$worktree_path" \
       "${GHSB_CHECKOUT[herdr_workspace]:-}"
-    echo "No agent (--no-agent)."
+    $no_agent && echo "No agent (--no-agent)."
     return 0
   fi
 
@@ -149,6 +157,7 @@ Flags:
   --video           After PR, record a Playwright walkthrough (ghsb finish --video)
   --review-fix      After PR, self-review and fix in this same agent
 
+The agent does not start until the GitHub issue has a non-empty body.
 Default wrap-up is push + PR only (no video, no auto-review).
 EOF
 }

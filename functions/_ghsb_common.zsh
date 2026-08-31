@@ -1395,6 +1395,14 @@ _ghsb_launch_in_current_space() {
   ) >>"$log" 2>&1 &!
 }
 
+# True if GitHub issue <n> on <owner/repo> has a non-empty body.
+_ghsb_issue_body_ready() {
+  local n="$1" repo="$2" body
+  [[ -n "$n" && -n "$repo" ]] || return 1
+  body=$(gh issue view "$n" -R "$repo" --json body -q '.body // empty' 2>/dev/null) || return 1
+  [[ -n "${body//[$' \t\r\n']/}" ]]
+}
+
 # Shared implement prompt for ghsb / ghi agents.
 # Optional 6th/7th args: want_video want_review ("true"/"false"). Default: push + PR only.
 _ghsb_implement_prompt() {

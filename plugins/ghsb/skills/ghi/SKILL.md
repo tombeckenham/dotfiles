@@ -8,26 +8,63 @@ compatibility: Requires Herdr pane (HERDR_PANE_ID), gh, git, and ~/.zsh_function
 
 Run `ghi` from this Herdr pane. Do not invent a parallel git/gh flow.
 
-## Invoke
+Never start the implement agent on an empty or stub issue. The worktree may exist first; the agent waits until the GitHub issue body is complete.
+
+## Runner
 
 ```bash
 RUN="${CLAUDE_PLUGIN_ROOT:-$HOME/code/dotfiles/plugins/ghsb}/scripts/run"
-zsh "$RUN" ghi [flags] [title or -i N]
 ```
 
 If `HERDR_PANE_ID` is unset, stop and tell the user to run this from a Herdr pane (repo root space).
 
-`ghi --help` for flags. Do not pass `--help` unless the user asked.
+## New issue
 
-## Flags you actually use
+Do not run `ghi "Title"` — that creates an empty-body issue and would start the agent too soon.
+
+1. Write a complete GitHub issue: title, problem, context, and acceptance criteria.
+
+   ```bash
+   gh issue create --title "…" --body "…"
+   ```
+
+2. Optional — create the worktree while you still might edit the issue:
+
+   ```bash
+   zsh "$RUN" ghi --no-agent -i N
+   ```
+
+3. Confirm the body is real, not empty or placeholder:
+
+   ```bash
+   gh issue view N --json title,body
+   ```
+
+4. Start the agent only after that:
+
+   ```bash
+   zsh "$RUN" ghi -i N
+   ```
+
+`ghi` also refuses to start the agent if the body is still empty; it leaves the worktree and prints `ghi -i N` for when the issue is ready.
+
+## Existing issue
+
+1. `gh issue view N --json title,body`
+2. If the body lacks enough context, `gh issue edit N --body "…"` before the agent.
+3. Worktree first is fine: `zsh "$RUN" ghi --no-agent -i N`
+4. Then `zsh "$RUN" ghi -i N`
+
+## Flags
+
+`ghi --help` if needed. Do not pass `--help` unless the user asked.
 
 | User intent | Command |
 | --- | --- |
-| New issue from a title | `ghi "Title"` |
-| Existing issue | `ghi -i 42` |
-| Branch from current | `ghi -c "Title"` |
-| Named branch | `ghi -b branch-name -i 42` |
+| Existing complete issue | `ghi -i 42` |
 | Worktree only | `ghi --no-agent -i 42` |
+| Branch from current | `ghi -c -i 42` |
+| Named branch | `ghi -b branch-name -i 42` |
 | Review a PR instead | `ghi review 99` (same as `ghipr`) |
 
 Default wrap-up is push + PR. Add `--video` / `--review-fix` only if the user asked.
