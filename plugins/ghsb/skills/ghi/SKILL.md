@@ -66,6 +66,7 @@ Do not run `ghi "Title"` — that creates an empty-body issue and would start th
 | Branch from current | `ghi -c -i 42` |
 | Named branch | `ghi -b branch-name -i 42` |
 | Review a PR instead | `ghi review 99` (same as `ghipr`) |
+| Branch, no issue | `ghi branch "Add dark mode"` (same as `ghb`) |
 
 Default wrap-up is push + PR. Add `--video` / `--review-fix` only if the user asked.
 

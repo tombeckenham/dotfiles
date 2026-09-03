@@ -1,7 +1,7 @@
 {
   "name": "ghsb",
   "version": "1.0.0",
-  "description": "Herdr GitHub workflow: start issue work (ghi), review a PR (ghipr), branch without an issue (ghwtb), and review every assigned PR that has no session (ghiprs).",
+  "description": "Herdr GitHub workflow: ghi (issue), ghb (branch, no issue), ghipr (one PR), ghiprs (assigned PRs).",
   "author": {
     "name": "Tom Beckenham",
     "url": "https://github.com/tombeckenham"

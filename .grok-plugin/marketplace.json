@@ -5,13 +5,13 @@
     "url": "https://github.com/tombeckenham"
   },
   "metadata": {
-    "description": "Herdr GitHub workflow skills: ghi, ghipr, ghwtb, ghiprs",
+    "description": "Herdr GitHub workflow skills: ghi, ghb, ghipr, ghiprs",
     "version": "1.0.0"
   },
   "plugins": [
     {
       "name": "ghsb",
-      "description": "Call ghi/ghipr/ghwtb from Grok or Claude, and fan out ghipr for every assigned PR without a session.",
+      "description": "Call ghi/ghb/ghipr/ghiprs from Grok or Claude.",
       "source": "./plugins/ghsb",
       "category": "development",
       "tags": ["herdr", "github", "worktree", "review"]

@@ -1,6 +1,8 @@
 # ghi — start issue work from a Herdr pane (typically the repo root space)
 # Usage: ghi [-c] [-f] [-b <branch>] [-i <number>] [--no-agent] [--video] [--review-fix] "Issue title"
 #        ghi review <pr-number>   # same as ghipr
+#        ghi reviews              # same as ghiprs
+#        ghi branch …             # same as ghb (no GitHub issue)
 #
 # Creates a Herdr worktree grouped under the repo, focuses that space, and
 # starts the agent there. Does not rename or cd the space you ran it from.
@@ -9,6 +11,16 @@ ghi() {
     review)
       shift
       ghipr "$@"
+      return $?
+      ;;
+    reviews)
+      shift
+      ghiprs "$@"
+      return $?
+      ;;
+    branch)
+      shift
+      ghb "$@"
       return $?
       ;;
   esac
@@ -147,6 +159,8 @@ rename or cd this space.
 
   ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] [--video] [--review-fix] "Issue title"
   ghi review <pr-number>     # same as ghipr
+  ghi reviews                # same as ghiprs
+  ghi branch […]             # same as ghb (no GitHub issue)
 
 Flags:
   -c, --current     Branch from current branch

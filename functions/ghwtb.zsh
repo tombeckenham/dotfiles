@@ -1,7 +1,8 @@
-# Create a branch and worktree without a GitHub issue
+# Create a branch and worktree without a GitHub issue (Cursor / tmux path)
 # Usage: ghwtb [-c] [-b <branch>] [<branch-name-or-description>]
+# Inside Herdr, use ghb / ghi branch instead.
 ghwtb() {
-  local base_branch="" branch_name="" description=""
+  local base_branch="" branch_name=""
 
   while [[ "$1" == -* ]]; do
     case "$1" in
@@ -21,6 +22,7 @@ ghwtb() {
         echo ""
         echo "Creates a new branch and Herdr worktree without opening a GitHub issue."
         echo "Worktrees live at ~/.herdr/worktrees/{repo}/{branch-slug}."
+        echo "Inside Herdr, use ghb (or ghi branch) instead of ghwtb."
         return 0
         ;;
       *)
@@ -31,107 +33,17 @@ ghwtb() {
     esac
   done
 
-  description="$*"
-  if [[ -z "$branch_name" ]]; then
-    branch_name="$1"
-    if [[ -z "$branch_name" ]]; then
-      echo "Usage: ghwtb [-c] [-b <branch>] [<branch-name-or-description>]"
-      return 1
-    fi
-    shift
-    description="$*"
-    if [[ "$branch_name" == *" "* ]]; then
-      description="$branch_name${description:+ $description}"
-      branch_name=$(echo "$branch_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9\/]/-/g; s/--*/-/g; s/^-//; s/-$//')
-    fi
-  elif [[ -z "$description" ]]; then
-    description="$branch_name"
-  fi
+  _ghsb_parse_branch_args ghwtb "$branch_name" "$@" || return 1
+  _ghsb_checkout_branch ghwtb "$base_branch" || return 1
 
-  # Detect fork (same heuristic as ghwt)
-  local is_fork=false upstream_repo="" fork_repo=""
-  fork_repo=$(git remote get-url origin 2>/dev/null | sed 's#.*github\.com[/:]##; s#\.git$##')
-  upstream_repo=$(gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null)
-  if [[ -n "$fork_repo" && -n "$upstream_repo" && "$fork_repo" != "$upstream_repo" ]]; then
-    is_fork=true
-    echo "Detected fork of $upstream_repo"
-  fi
-
-  local default_branch
-  default_branch=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null)
-  default_branch="${default_branch:-main}"
-
-  local sync_source="origin"
-  if $is_fork; then
-    if git remote get-url upstream >/dev/null 2>&1; then
-      sync_source="upstream"
-    else
-      sync_source="https://github.com/${upstream_repo}.git"
-    fi
-  fi
-
-  local branch_exists=false
-  if git show-ref --verify --quiet "refs/heads/${branch_name}"; then
-    branch_exists=true
-  elif git ls-remote --exit-code --heads origin "$branch_name" >/dev/null 2>&1; then
-    # Ask origin directly rather than trusting local remote-tracking refs,
-    # which may be stale if the branch was pushed from elsewhere.
-    branch_exists=true
-    echo "Fetching existing branch '$branch_name' from origin..."
-    git fetch origin "$branch_name" || return 1
-  fi
-
-  if ! $branch_exists; then
-    echo "Syncing $default_branch from $sync_source..."
-    local current_branch
-    current_branch=$(git branch --show-current 2>/dev/null)
-    if [[ -n "$base_branch" ]]; then
-      :
-    elif [[ "$current_branch" == "$default_branch" ]]; then
-      git pull --ff-only "$sync_source" "$default_branch" 2>/dev/null \
-        || echo "  (local $default_branch not fast-forwardable; continuing)"
-    else
-      git fetch "$sync_source" "${default_branch}:${default_branch}" 2>/dev/null \
-        || git fetch "$sync_source" "$default_branch" 2>/dev/null
-    fi
-    git fetch origin 2>/dev/null
-
-    local base_ref
-    if [[ -n "$base_branch" ]]; then
-      base_ref="origin/$base_branch"
-    elif [[ "$sync_source" == "upstream" ]]; then
-      base_ref="upstream/$default_branch"
-    elif [[ "$sync_source" == "origin" ]]; then
-      base_ref="origin/$default_branch"
-    else
-      base_ref="FETCH_HEAD"
-    fi
-
-    git branch "$branch_name" "$base_ref" || return 1
-    git push -u origin "$branch_name" || return 1
-    echo "Created branch: $branch_name (from $base_ref)"
-  else
-    echo "Using existing branch: $branch_name"
-  fi
-
-  local repo_root repo_name sanitized_branch_name worktree_path
-  repo_root=$(_ghsb_repo_root)
-  repo_name=$(basename "$repo_root")
-  sanitized_branch_name=$(_ghsb_herdr_branch_slug "$branch_name")
-  _ghsb_herdr_wt_ensure_branch "$repo_root" "$branch_name" "${repo_name}-${sanitized_branch_name}" || return 1
-  worktree_path="${GHSB_HERDR_WT[path]}"
-
-  local selector="${#branch_name}"
-  local ai_tool="claude"
-  if (( selector % 2 == 0 )); then
-    ai_tool="grok"
-  fi
-
-  local ai_cmd="${ai_tool} --permission-mode auto \"Work on branch ${branch_name}."
-  if [[ -n "$description" && "$description" != "$branch_name" ]]; then
-    ai_cmd+=" Goal: ${description}."
-  fi
-  ai_cmd+=" Ask me for any missing context before you start.\""
+  local worktree_path="${GHSB_CHECKOUT[worktree]}"
+  local sanitized_branch_name
+  sanitized_branch_name=$(_ghsb_herdr_branch_slug "${GHSB_CHECKOUT[branch]}")
+  local ai_tool
+  ai_tool=$(_ghsb_pick_ai "${#GHSB_CHECKOUT[branch]}")
+  local ai_prompt
+  ai_prompt=$(_ghsb_branch_prompt "${GHSB_CHECKOUT[branch]}" "${GHSB_CHECKOUT[description]:-}")
+  local ai_cmd="${ai_tool} --permission-mode auto $(printf %q "$ai_prompt")"
 
   splt "$worktree_path"
 

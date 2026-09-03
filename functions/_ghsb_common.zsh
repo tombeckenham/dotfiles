@@ -915,6 +915,133 @@ _ghsb_checkout_issue() {
   return 0
 }
 
+# Resolve -b / positional into GHSB_CHECKOUT[branch] and [description].
+# A positional with spaces is slugified into the branch name.
+# Usage: _ghsb_parse_branch_args <cmd> <explicit_branch> [args...]
+_ghsb_parse_branch_args() {
+  local cmd="${1:-ghb}" explicit="$2"
+  shift 2
+  local description="$*" branch_name="$explicit"
+  if [[ -z "$branch_name" ]]; then
+    branch_name="$1"
+    if [[ -z "$branch_name" ]]; then
+      echo "Usage: ${cmd} [-c] [-b <branch>] [<branch-name-or-description>]"
+      return 1
+    fi
+    shift
+    description="$*"
+    if [[ "$branch_name" == *" "* ]]; then
+      description="$branch_name${description:+ $description}"
+      branch_name=$(printf '%s\n' "$branch_name" | tr '[:upper:]' '[:lower:]' \
+        | sed 's/[^a-z0-9\/]/-/g; s/--*/-/g; s/^-//; s/-$//')
+    fi
+  elif [[ -z "$description" ]]; then
+    description="$branch_name"
+  fi
+  GHSB_CHECKOUT[branch]="$branch_name"
+  GHSB_CHECKOUT[description]="$description"
+}
+
+# Create or reuse a local+origin branch and Herdr worktree. No GitHub issue.
+# Requires GHSB_CHECKOUT[branch] (from _ghsb_parse_branch_args).
+# Usage: _ghsb_checkout_branch <cmd> <base_branch>
+_ghsb_checkout_branch() {
+  local cmd="${1:-ghb}" base_branch="$2"
+  local branch_name="${GHSB_CHECKOUT[branch]:-}"
+  local description="${GHSB_CHECKOUT[description]:-}"
+  if [[ -z "$branch_name" ]]; then
+    echo "Usage: ${cmd} [-c] [-b <branch>] [<branch-name-or-description>]"
+    return 1
+  fi
+  GHSB_CHECKOUT=()
+  GHSB_CHECKOUT[branch]="$branch_name"
+  GHSB_CHECKOUT[description]="$description"
+
+  local detect is_fork fork_repo upstream_repo
+  detect=$(_ghsb_detect_repo)
+  is_fork=${detect%%$'\t'*}
+  fork_repo=${detect#*$'\t'}; fork_repo=${fork_repo%%$'\t'*}
+  upstream_repo=${detect##*$'\t'}
+  [[ "$is_fork" == "true" ]] && echo "Detected fork of $upstream_repo"
+
+  local default_branch
+  default_branch=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null)
+  default_branch="${default_branch:-main}"
+
+  local sync_source="origin"
+  if [[ "$is_fork" == "true" ]]; then
+    if git remote get-url upstream >/dev/null 2>&1; then
+      sync_source="upstream"
+    else
+      sync_source="https://github.com/${upstream_repo}.git"
+    fi
+  fi
+
+  local branch_exists=false
+  if git show-ref --verify --quiet "refs/heads/${branch_name}"; then
+    branch_exists=true
+  elif git ls-remote --exit-code --heads origin "$branch_name" >/dev/null 2>&1; then
+    branch_exists=true
+    echo "Fetching existing branch '$branch_name' from origin..."
+    git fetch origin "$branch_name" || return 1
+  fi
+
+  if ! $branch_exists; then
+    echo "Syncing $default_branch from $sync_source..."
+    local current_branch
+    current_branch=$(git branch --show-current 2>/dev/null)
+    if [[ -n "$base_branch" ]]; then
+      :
+    elif [[ "$current_branch" == "$default_branch" ]]; then
+      git pull --ff-only "$sync_source" "$default_branch" 2>/dev/null \
+        || echo "  (local $default_branch not fast-forwardable; continuing)"
+    else
+      git fetch "$sync_source" "${default_branch}:${default_branch}" 2>/dev/null \
+        || git fetch "$sync_source" "$default_branch" 2>/dev/null
+    fi
+    git fetch origin 2>/dev/null
+
+    local base_ref
+    if [[ -n "$base_branch" ]]; then
+      base_ref="origin/$base_branch"
+    elif [[ "$sync_source" == "upstream" ]]; then
+      base_ref="upstream/$default_branch"
+    elif [[ "$sync_source" == "origin" ]]; then
+      base_ref="origin/$default_branch"
+    else
+      base_ref="FETCH_HEAD"
+    fi
+
+    git branch "$branch_name" "$base_ref" || return 1
+    git push -u origin "$branch_name" || return 1
+    echo "Created branch: $branch_name (from $base_ref)"
+  else
+    echo "Using existing branch: $branch_name"
+  fi
+
+  local repo_root repo_name session_id origin_repo slug
+  repo_root=$(_ghsb_repo_root)
+  repo_name=$(basename "$repo_root")
+  slug=$(_ghsb_herdr_branch_slug "$branch_name")
+  session_id="${repo_name}-b-${slug}"
+  origin_repo="$fork_repo"
+  [[ -z "$origin_repo" ]] && origin_repo=$(git remote get-url origin 2>/dev/null \
+    | sed 's#.*github\.com[/:]##; s#\.git$##')
+
+  _ghsb_herdr_wt_ensure_branch "$repo_root" "$branch_name" "$slug" || return 1
+  _ghsb_herdr_wt_apply_checkout
+
+  GHSB_CHECKOUT[issue]=""
+  GHSB_CHECKOUT[pr]=""
+  GHSB_CHECKOUT[branch]="$branch_name"
+  GHSB_CHECKOUT[description]="$description"
+  GHSB_CHECKOUT[session_id]="$session_id"
+  GHSB_CHECKOUT[repo]="${upstream_repo:-$origin_repo}"
+  GHSB_CHECKOUT[origin]="$origin_repo"
+  GHSB_CHECKOUT[default_branch]="$default_branch"
+  return 0
+}
+
 # PR → worktree (gh pr checkout) → _worktree_setup → freshness.
 # Writes results to GHSB_CHECKOUT. Shared by ghsbpr and ghipr.
 # Usage: _ghsb_checkout_pr <pr-number>
@@ -1187,6 +1314,8 @@ _ghsb_issue_space_label() {
     _ghsb_herdr_issue_label "${GHSB_CHECKOUT[issue]}" "${GHSB_CHECKOUT[branch]}"
   elif [[ -n "${GHSB_CHECKOUT[pr]:-}" ]]; then
     printf 'pr-%s\n' "${GHSB_CHECKOUT[pr]}"
+  elif [[ -n "${GHSB_CHECKOUT[branch]:-}" ]]; then
+    _ghsb_herdr_branch_slug "${GHSB_CHECKOUT[branch]}"
   else
     printf '%s\n' "$fallback"
   fi
@@ -1401,6 +1530,22 @@ _ghsb_issue_body_ready() {
   [[ -n "$n" && -n "$repo" ]] || return 1
   body=$(gh issue view "$n" -R "$repo" --json body -q '.body // empty' 2>/dev/null) || return 1
   [[ -n "${body//[$' \t\r\n']/}" ]]
+}
+
+# Prompt for a no-issue branch agent (ghb / ghi branch).
+_ghsb_branch_prompt() {
+  local branch="$1" description="$2"
+  local goal=""
+  if [[ -n "$description" && "$description" != "$branch" ]]; then
+    goal=$'\n'"Goal: ${description}."
+  fi
+  printf '%s\n' "Work on branch ${branch}.${goal}
+
+Ask me for any missing context before you start. Work in this worktree. Commit on ${branch} and push to origin regularly.
+
+When implementation is complete:
+1. Push the branch
+2. Open a PR if one does not exist"
 }
 
 # Shared implement prompt for ghsb / ghi agents.

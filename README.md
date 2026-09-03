@@ -60,6 +60,9 @@ Same checkout as `ghsb` (issue → branch → Herdr worktree → setup). Run it 
 ```sh
 # Inside Herdr, from the repo root space:
 ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] [--video] [--review-fix] "Issue title"
+ghi review <pr-number>      # same as ghipr
+ghi reviews                 # same as ghiprs
+ghi branch "Add dark mode"  # same as ghb (no GitHub issue)
 ```
 
 | Flag | Description |
@@ -81,6 +84,20 @@ What it does:
 5. Writes a `ghsb` session. Default agent wrap-up is push + PR only.
 
 Source: `functions/ghi.zsh`.
+
+### `ghb` / `ghib` / `ghi branch` — branch + worktree from the repo root in Herdr (no issue)
+
+Same Herdr flow as `ghi` (worktree grouped under the repo, focus that space, start the agent, open reviewr). Does not create a GitHub issue. `ghwtb` is the Cursor sibling.
+
+```sh
+ghb "Add dark mode"          # slugs to add-dark-mode
+ghb -b my-branch
+ghb -c "from current"
+ghib "Add dark mode"         # same
+ghi branch "Add dark mode"   # same
+```
+
+Source: `functions/ghb.zsh`.
 
 ### `ghipr` / `ghi review` — PR review in the current Herdr space
 
@@ -208,7 +225,7 @@ Source: `functions/ghwtrm.zsh`.
 ghwtb [-c] [-b <branch>] [<branch-name-or-description>]
 ```
 
-Same worktree + Cursor + Claude/Grok flow as `ghwt`, but skips GitHub issue creation. Creates a new branch (or reuses an existing one), checks it out as a Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}`, and launches the AI agent. Pass a description with spaces to auto-slugify the branch name (e.g. `"Add dark mode"` → `add-dark-mode`).
+Same worktree + Cursor + Claude/Grok flow as `ghwt`, but skips GitHub issue creation. Creates a new branch (or reuses an existing one), checks it out as a Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}`, and launches the AI agent. Pass a description with spaces to auto-slugify the branch name (e.g. `"Add dark mode"` → `add-dark-mode`). Inside Herdr, use `ghb` / `ghi branch` instead.
 
 | Flag | Description |
 | --- | --- |
@@ -330,6 +347,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
     ├── ghsb.zsh
     ├── ghsbpr.zsh
     ├── ghi.zsh
+    ├── ghb.zsh
     ├── ghipr.zsh
     ├── ghiprs.zsh
     ├── _ghsb_common.zsh
@@ -349,7 +367,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 
 ## Agent skills (marketplace)
 
-This repo is a Grok / Claude Code marketplace. The `ghsb` plugin exposes `/ghi`, `/ghipr`, `/ghwtb`, and `/ghiprs` so an agent can call those functions (they live in `~/.zsh_functions` via `bootstrap.sh`; a non-interactive shell will not have them unless it uses the plugin runner).
+This repo is a Grok / Claude Code marketplace. The `ghsb` plugin exposes `/ghi`, `/ghb`, `/ghipr`, `/ghiprs`, and `/ghwtb` so an agent can call those functions (they live in `~/.zsh_functions` via `bootstrap.sh`; a non-interactive shell will not have them unless it uses the plugin runner).
 
 ```sh
 # Grok
