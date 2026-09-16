@@ -8,32 +8,72 @@ _ghsb_init_dirs() {
   mkdir -p "$GHSB_SESSIONS_DIR" "$GHSB_ARTIFACTS_DIR"
 }
 
-# Pick implement/review agent: grok / claude (issue mod 2 → 50:50)
+# Enabled agents: $GHSB_AGENTS, else ~/.ghsb/agents, else both. Set with `ghagents`.
+_ghsb_agent_pool() {
+  local list="${GHSB_AGENTS:-$(cat "$GHSB_HOME/agents" 2>/dev/null)}"
+  echo "${list:-grok claude codex}"
+}
+
+# Show or set the enabled agent pool: `ghagents` / `ghagents claude` / `ghagents grok claude`
+ghagents() {
+  _ghsb_init_dirs
+  if (( $# )); then
+    local a
+    for a in "$@"; do
+      [[ "$a" == (grok|claude|codex) ]] || { echo "ghagents: unknown agent '$a' (grok claude codex)" >&2; return 1; }
+    done
+    print -r -- "$*" > "$GHSB_HOME/agents"
+  fi
+  echo "agents: $(_ghsb_agent_pool)${GHSB_AGENTS:+ (from \$GHSB_AGENTS)}"
+}
+
+# Pick implement/review agent from the enabled pool (selector mod pool size → even split)
 _ghsb_pick_ai() {
   local selector="${1:-}"
   [[ -z "$selector" || "$selector" == "0" ]] && selector=$(date +%s)
-  case $(( selector % 2 )) in
-    0) echo "grok" ;;
-    *) echo "claude" ;;
-  esac
+  local -a pool=(${=$(_ghsb_agent_pool)})
+  (( ${#pool} )) || pool=(grok claude codex)
+  echo "${pool[$(( selector % ${#pool} + 1 ))]}"
 }
 
 # Map AI CLI → herdr --kind
 _ghsb_herdr_kind() {
   case "$1" in
     grok) echo "grok" ;;
+    codex) echo "codex" ;;
     claude) echo "claude" ;;
     *) echo "claude" ;;
   esac
 }
 
 # CLI flags for agent runs (permission auto, not always-approve/yolo).
-# Grok/Claude: --permission-mode auto.
+# Grok/Claude: --permission-mode auto. Codex has no such flag — the equivalent is
+# writes confined to the workspace with the model deciding when to ask.
 # Note: a CLI --permission-mode overrides [ui] permission_mode in config.toml.
 _ghsb_ai_flags() {
   case "$1" in
-    grok|claude) echo "--permission-mode auto" ;;
+    codex) echo "--sandbox workspace-write --ask-for-approval on-request" ;;
     *) echo "--permission-mode auto" ;;
+  esac
+}
+
+# Opening line that tells <ai_tool> to review PR <pr>. Codex has no PR-review
+# skill installed, so it gets the task in plain English instead of a slash command.
+# Usage: _ghsb_review_cmd <ai_tool> <pr> [skill_args]
+_ghsb_review_cmd() {
+  local ai_tool="$1" pr="$2" args="${3:-}"
+  case "$ai_tool" in
+    codex) echo "Review pull request ${pr}: run 'gh pr view ${pr}' and 'gh pr diff ${pr}', then report correctness, security, and test-coverage findings." ;;
+    grok) echo "/review-pr ${pr}${args:+ $args}" ;;
+    *) echo "/pr-review-toolkit:review-pr ${pr}${args:+ $args}" ;;
+  esac
+}
+
+# Over-engineering pass to run alongside the review.
+_ghsb_ponytail_cmd() {
+  case "$1" in
+    codex) echo "Alongside that, do an over-engineering pass." ;;
+    *) echo "Run /ponytail-review in parallel with this review (separate subagent; start both before waiting on either)." ;;
   esac
 }
 
@@ -599,6 +639,7 @@ _ghsb_herdr_launch_in_pane() {
   # Flags only after -- ; long task text goes through agent prompt (official recipe).
   local -a agent_args=()
   case "$ai_tool" in
+    codex) agent_args=(--sandbox workspace-write --ask-for-approval on-request) ;;
     grok|claude) agent_args=(--permission-mode auto) ;;
   esac
 
@@ -1042,8 +1083,178 @@ _ghsb_checkout_branch() {
   return 0
 }
 
-# PR → worktree (gh pr checkout) → _worktree_setup → freshness.
-# Writes results to GHSB_CHECKOUT. Shared by ghsbpr and ghipr.
+# Abort a leftover merge/rebase in a PR review worktree (previous run).
+_ghsb_pr_abort_in_progress() {
+  local worktree="$1"
+  local git_dir
+  git_dir=$(git -C "$worktree" rev-parse --git-dir 2>/dev/null) || return 0
+  if [[ -f "$git_dir/MERGE_HEAD" ]]; then
+    echo "Aborting leftover merge in worktree"
+    git -C "$worktree" merge --abort >/dev/null 2>&1 || true
+  fi
+  if [[ -d "$git_dir/rebase-merge" || -d "$git_dir/rebase-apply" ]]; then
+    echo "Aborting leftover rebase in worktree"
+    git -C "$worktree" rebase --abort >/dev/null 2>&1 || true
+  fi
+}
+
+# Refresh an existing PR worktree to GitHub's PR HEAD. No-op if dirty.
+# Usage: _ghsb_pr_refresh_head <worktree> <pr-number> <head-oid> [gh pr checkout args...]
+_ghsb_pr_refresh_head() {
+  local worktree="$1" pr_number="$2" head_oid="$3"
+  shift 3
+  [[ -d "$worktree" ]] || return 0
+  _ghsb_pr_abort_in_progress "$worktree"
+  if [[ -n "$(git -C "$worktree" status --porcelain 2>/dev/null)" ]]; then
+    echo "Worktree has local changes; not resetting to PR HEAD"
+    return 0
+  fi
+  if [[ -n "$head_oid" && \
+        "$(git -C "$worktree" rev-parse HEAD 2>/dev/null)" == "$head_oid" ]]; then
+    return 0
+  fi
+  echo "Refreshing PR #${pr_number} to latest head..."
+  if (( $# )); then
+    (cd "$worktree" && gh pr checkout "$@") >/dev/null || \
+      echo "gh pr checkout failed; trying current refs"
+  fi
+  if [[ -n "$head_oid" ]] && git -C "$worktree" cat-file -e "${head_oid}^{commit}" 2>/dev/null; then
+    git -C "$worktree" reset --hard "$head_oid" >/dev/null
+    echo "Reset worktree to PR HEAD ${head_oid:0:7}"
+  fi
+  return 0
+}
+
+_ghsb_pr_recount_ahead_behind() {
+  local worktree="$1"
+  GHSB_CHECKOUT[behind]=$(git -C "$worktree" rev-list --count HEAD..FETCH_HEAD 2>/dev/null)
+  GHSB_CHECKOUT[ahead]=$(git -C "$worktree" rev-list --count FETCH_HEAD..HEAD 2>/dev/null)
+}
+
+# Merge or rebase FETCH_HEAD (base) into the PR worktree when behind or
+# conflicting. Local only — never pushes. On conflict, abort and record
+# paths; the review still runs.
+# Requires GHSB_CHECKOUT worktree/base/mergeable/merge_state/behind and a
+# FETCH_HEAD from fetching the base. Sets update_status, conflict_files,
+# and refreshes behind/ahead.
+_ghsb_pr_update_from_base() {
+  local worktree="${GHSB_CHECKOUT[worktree]}"
+  local base_ref="${GHSB_CHECKOUT[base]}"
+  local mergeable="${GHSB_CHECKOUT[mergeable]}"
+  local merge_state="${GHSB_CHECKOUT[merge_state]}"
+  local behind="${GHSB_CHECKOUT[behind]}"
+
+  GHSB_CHECKOUT[update_status]="skipped"
+  GHSB_CHECKOUT[conflict_files]=""
+
+  [[ -n "$worktree" && -d "$worktree" ]] || return 0
+  git -C "$worktree" rev-parse --verify FETCH_HEAD >/dev/null 2>&1 || return 0
+
+  _ghsb_pr_abort_in_progress "$worktree"
+
+  if [[ -n "$(git -C "$worktree" status --porcelain 2>/dev/null)" ]]; then
+    echo "Worktree has local changes; skipping update from ${base_ref}"
+    GHSB_CHECKOUT[update_status]="dirty"
+    return 0
+  fi
+
+  local needs=0
+  if [[ "$mergeable" == "CONFLICTING" || "$merge_state" == "DIRTY" || "$merge_state" == "BEHIND" ]]; then
+    needs=1
+  fi
+  if [[ "$behind" == <-> ]] && (( behind > 0 )); then
+    needs=1
+  fi
+  if (( ! needs )); then
+    GHSB_CHECKOUT[update_status]="current"
+    return 0
+  fi
+
+  echo "Updating worktree from ${base_ref} before review (local only, not pushed)..."
+
+  local conflicts=""
+  if git -C "$worktree" -c core.editor=true -c merge.ff=true merge --no-edit FETCH_HEAD; then
+    echo "Merged ${base_ref} into this worktree for review (not pushed)."
+    GHSB_CHECKOUT[update_status]="merged"
+    _ghsb_pr_recount_ahead_behind "$worktree"
+    return 0
+  fi
+
+  conflicts=$(git -C "$worktree" diff --name-only --diff-filter=U 2>/dev/null)
+  echo "Merge of ${base_ref} hit conflicts; aborting merge, trying rebase..."
+  git -C "$worktree" merge --abort >/dev/null 2>&1 || true
+
+  if git -C "$worktree" -c core.editor=true rebase FETCH_HEAD; then
+    echo "Rebased onto ${base_ref} for review (not pushed)."
+    GHSB_CHECKOUT[update_status]="rebased"
+    _ghsb_pr_recount_ahead_behind "$worktree"
+    return 0
+  fi
+
+  local rebase_conflicts
+  rebase_conflicts=$(git -C "$worktree" diff --name-only --diff-filter=U 2>/dev/null)
+  [[ -n "$rebase_conflicts" ]] && conflicts="$rebase_conflicts"
+  echo "Rebase onto ${base_ref} also hit conflicts; aborting rebase."
+  git -C "$worktree" rebase --abort >/dev/null 2>&1 || true
+
+  if [[ -z "$conflicts" ]]; then
+    conflicts=$(git -C "$worktree" merge-tree --write-tree --name-only --no-messages HEAD FETCH_HEAD 2>/dev/null)
+  fi
+
+  GHSB_CHECKOUT[update_status]="conflicts"
+  GHSB_CHECKOUT[conflict_files]="$conflicts"
+  echo "Conflicts with ${base_ref} (not applied). Reviewing the PR as authored."
+  if [[ -n "$conflicts" ]]; then
+    echo "Conflicted files:"
+    printf '%s\n' "$conflicts" | sed '/^$/d; s/^/  /'
+  fi
+  return 0
+}
+
+_ghsb_pr_build_relevance_note() {
+  local base_ref="${GHSB_CHECKOUT[base]}"
+  local update_block=""
+  case "${GHSB_CHECKOUT[update_status]:-skipped}" in
+    merged)
+      update_block="Local update: merged ${base_ref} into this worktree for review (not pushed). Review this updated tree."
+      ;;
+    rebased)
+      update_block="Local update: rebased onto ${base_ref} for review (not pushed). Review this updated tree."
+      ;;
+    conflicts)
+      update_block="Local update: merge and rebase of ${base_ref} both hit conflicts; aborted (not pushed). Review the PR as authored. Flag the conflicts and whether the changes still apply on current ${base_ref}."
+      if [[ -n "${GHSB_CHECKOUT[conflict_files]}" ]]; then
+        update_block+=$'\n'"Conflicted files:"$'\n'"$(printf '%s\n' "${GHSB_CHECKOUT[conflict_files]}" | sed '/^$/d; s/^/- /')"
+      fi
+      ;;
+    dirty)
+      update_block="Local update: skipped (worktree has uncommitted changes)."
+      ;;
+    current)
+      update_block="Local update: already up to date with ${base_ref}."
+      ;;
+    *)
+      update_block="Local update: skipped."
+      ;;
+  esac
+
+  GHSB_CHECKOUT[relevance_note]="PR #${GHSB_CHECKOUT[pr]} freshness context for this review:
+- Title: ${GHSB_CHECKOUT[pr_title]}
+- Base branch: ${base_ref}
+- Behind ${base_ref} by: ${GHSB_CHECKOUT[behind]} commit(s)
+- Ahead of ${base_ref} by: ${GHSB_CHECKOUT[ahead]} commit(s)
+- Mergeable: ${GHSB_CHECKOUT[mergeable]} / merge state: ${GHSB_CHECKOUT[merge_state]}
+- From fork: ${GHSB_CHECKOUT[is_cross]} (owner: ${GHSB_CHECKOUT[fork_owner]}, maintainer edits: ${GHSB_CHECKOUT[can_modify]})
+- Opened: ${GHSB_CHECKOUT[created_at]}; last updated: ${GHSB_CHECKOUT[updated_at]}
+
+${update_block}
+
+If this PR is still stale or conflicting after the local update, say so and whether the changes still apply."
+}
+
+# PR → worktree (gh pr checkout) → refresh HEAD → merge/rebase base if
+# behind or conflicting → freshness. Writes results to GHSB_CHECKOUT.
+# Shared by ghsbpr and ghipr.
 # Usage: _ghsb_checkout_pr <pr-number>
 _ghsb_checkout_pr() {
   local pr_number="$1"
@@ -1067,14 +1278,15 @@ _ghsb_checkout_pr() {
 
   local pr_data
   pr_data=$(gh pr view "${repo_args[@]}" "$pr_number" \
-    --json headRefName,baseRefName,isCrossRepository,maintainerCanModify,mergeable,mergeStateStatus,createdAt,updatedAt,headRepositoryOwner,url,title 2>&1)
+    --json headRefName,baseRefName,headRefOid,isCrossRepository,maintainerCanModify,mergeable,mergeStateStatus,createdAt,updatedAt,headRepositoryOwner,url,title 2>&1)
   if [[ $? -ne 0 ]]; then
     echo "Failed to fetch PR info: $pr_data"
     return 1
   fi
 
-  local head_ref base_ref is_cross can_modify mergeable merge_state created_at updated_at fork_owner pr_url pr_title
+  local head_ref base_ref head_oid is_cross can_modify mergeable merge_state created_at updated_at fork_owner pr_url pr_title
   head_ref=$(echo "$pr_data" | jq -r '.headRefName')
+  head_oid=$(echo "$pr_data" | jq -r '.headRefOid // empty')
   base_ref=$(echo "$pr_data" | jq -r '.baseRefName')
   is_cross=$(echo "$pr_data" | jq -r '.isCrossRepository')
   can_modify=$(echo "$pr_data" | jq -r '.maintainerCanModify')
@@ -1099,13 +1311,16 @@ _ghsb_checkout_pr() {
   origin_repo="$fork_repo"
   [[ -z "$issue_repo" ]] && issue_repo="$origin_repo"
 
-  local slug found rest ws herdr_path legacy
+  local slug found rest ws herdr_path legacy wt_existed=false
+  local -a checkout_args=("$pr_number")
+  [[ "$is_fork" == "true" ]] && checkout_args+=(-R "$upstream_repo")
   slug=$(_ghsb_herdr_branch_slug "$head_ref")
   herdr_path="$(_ghsb_herdr_worktrees_root)/${repo_name}/${slug}"
   legacy="$HOME/.claude/worktrees/${repo_name}-${pr_number}"
   GHSB_HERDR_WT=()
   found=$(_ghsb_herdr_wt_find_branch "$repo_root" "$head_ref") || found=""
   if [[ -n "$found" ]]; then
+    wt_existed=true
     worktree_path=${found%%$'\t'*}
     rest=${found#*$'\t'}
     ws=${rest%%$'\t'*}
@@ -1116,10 +1331,12 @@ _ghsb_checkout_pr() {
       _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
     fi
   elif [[ -d "$legacy" ]]; then
+    wt_existed=true
     worktree_path="$legacy"
     echo "Worktree already exists at: $worktree_path"
     _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
   elif [[ -d "$herdr_path" ]]; then
+    wt_existed=true
     worktree_path="$herdr_path"
     echo "Worktree already exists at: $worktree_path"
     _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
@@ -1138,8 +1355,6 @@ _ghsb_checkout_pr() {
       return 1
     fi
 
-    local -a checkout_args=("$pr_number")
-    [[ "$is_fork" == "true" ]] && checkout_args+=(-R "$upstream_repo")
     if ! (cd "$worktree_path" && gh pr checkout "${checkout_args[@]}"); then
       echo "Failed to check out PR #${pr_number}"
       git worktree remove --force "$worktree_path" 2>/dev/null
@@ -1161,6 +1376,10 @@ _ghsb_checkout_pr() {
   fi
   _ghsb_herdr_wt_apply_checkout
 
+  if $wt_existed; then
+    _ghsb_pr_refresh_head "$worktree_path" "$pr_number" "$head_oid" "${checkout_args[@]}"
+  fi
+
   local base_fetch_source="origin" behind="?" ahead="?"
   [[ "$is_fork" == "true" ]] && base_fetch_source="https://github.com/${upstream_repo}.git"
   if git -C "$worktree_path" fetch "$base_fetch_source" "$base_ref" 2>/dev/null; then
@@ -1168,21 +1387,6 @@ _ghsb_checkout_pr() {
     ahead=$(git -C "$worktree_path" rev-list --count FETCH_HEAD..HEAD 2>/dev/null)
   fi
   echo "PR is ${behind} commit(s) behind ${base_ref}, ${ahead} ahead (mergeable: ${mergeable})"
-
-  local relevance_note
-  relevance_note="PR #${pr_number} freshness context for this review:
-- Title: ${pr_title}
-- Base branch: ${base_ref}
-- Behind ${base_ref} by: ${behind} commit(s)
-- Ahead of ${base_ref} by: ${ahead} commit(s)
-- Mergeable: ${mergeable} / merge state: ${merge_state}
-- From fork: ${is_cross} (owner: ${fork_owner}, maintainer edits: ${can_modify})
-- Opened: ${created_at}; last updated: ${updated_at}
-
-As part of the review, assess how relevant and current this PR still is. If it is
-significantly behind ${base_ref}, conflicting, or stale, flag it, explain whether
-the changes are still applicable to the current codebase, and recommend whether it
-needs a rebase or update before it can be merged."
 
   GHSB_CHECKOUT[pr]="$pr_number"
   GHSB_CHECKOUT[branch]="$head_ref"
@@ -1203,7 +1407,10 @@ needs a rebase or update before it can be merged."
   GHSB_CHECKOUT[pr_title]="$pr_title"
   GHSB_CHECKOUT[behind]="$behind"
   GHSB_CHECKOUT[ahead]="$ahead"
-  GHSB_CHECKOUT[relevance_note]="$relevance_note"
+
+  _ghsb_pr_update_from_base
+  echo "Local update from ${base_ref}: ${GHSB_CHECKOUT[update_status]} (${GHSB_CHECKOUT[behind]} behind, ${GHSB_CHECKOUT[ahead]} ahead, not pushed)"
+  _ghsb_pr_build_relevance_note
   return 0
 }
 
@@ -1220,6 +1427,8 @@ _ghsb_pr_write_artifacts() {
   local pr_url="${GHSB_CHECKOUT[pr_url]}"
   local behind="${GHSB_CHECKOUT[behind]}"
   local ahead="${GHSB_CHECKOUT[ahead]}"
+  local update_status="${GHSB_CHECKOUT[update_status]:-}"
+  local conflict_files="${GHSB_CHECKOUT[conflict_files]:-}"
 
   local art
   art="$GHSB_ARTIFACTS_DIR/${session_id}-$(date +%Y%m%d-%H%M%S)"
@@ -1254,6 +1463,8 @@ _ghsb_pr_write_artifacts() {
     echo "- Branch: $branch"
     echo "- Base: $base_ref (${behind} behind, ${ahead} ahead)"
     echo "- Worktree: $worktree"
+    [[ -n "$update_status" ]] && echo "- Local update from $base_ref: $update_status (not pushed)"
+    [[ -n "$conflict_files" ]] && echo "- Conflicted files: $(printf '%s' "$conflict_files" | tr '\n' ' ')"
     [[ -n "$preview_url" ]] && echo "- Preview: $preview_url"
     echo ""
     echo "## Files to review (ranked)"
@@ -1270,19 +1481,14 @@ _ghsb_pr_review_prompt() {
   local pr="${GHSB_CHECKOUT[pr]}"
   local art="${GHSB_CHECKOUT[artifacts]}"
   local relevance="${GHSB_CHECKOUT[relevance_note]}"
-  if [[ "$ai_tool" == "grok" ]]; then
-    printf '%s\n' "/review-pr ${pr}
+  local extra="$(_ghsb_ponytail_cmd "$ai_tool") Put ponytail findings in a Ponytail section, one line each: file:L<line>: <tag> <what>. <replacement>. Tags: delete, stdlib, native, yagni, shrink. Over-engineering only — correctness stays in the main review. If nothing to cut: Lean already. Ship."
+  [[ -n "$art" ]] && extra+=$'\n\n'"Also read ${art}/SUMMARY.md and ${art}/files-to-review.txt. Prioritise the ranked files for findings."
+
+  printf '%s\n' "$(_ghsb_review_cmd "$ai_tool" "$pr" "all parallel")
 
 ${relevance}
 
-Also read ${art}/SUMMARY.md and ${art}/files-to-review.txt. Prioritise the ranked files for findings."
-  else
-    printf '%s\n' "/pr-review-toolkit:review-pr ${pr}
-
-${relevance}
-
-Also read ${art}/SUMMARY.md and ${art}/files-to-review.txt. Prioritise the ranked files for findings."
-  fi
+${extra}"
 }
 
 # Require a live Herdr pane (HERDR_PANE_ID + HERDR_WORKSPACE_ID).
@@ -1554,8 +1760,8 @@ _ghsb_implement_prompt() {
   local issue_number="$1" issue_repo="$2" branch_name="$3" session_id="$4"
   local ai_tool="${5:-}"
   local want_video="${6:-false}" want_review="${7:-false}"
-  local review_skill="/pr-review-toolkit:review-pr"
-  [[ "$ai_tool" == "grok" ]] && review_skill="/review-pr"
+  local review_skill
+  review_skill="$(_ghsb_review_cmd "$ai_tool" "<pr-number>")"
   local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
   local wrap step=3
   wrap="When implementation is complete:
@@ -1567,7 +1773,7 @@ _ghsb_implement_prompt() {
     step=$((step + 1))
   fi
   if [[ "$want_review" == true ]]; then
-    wrap+=$'\n'"${step}. Review the PR here: ${review_skill} <pr-number>
+    wrap+=$'\n'"${step}. ${review_skill}
    Fix any issues you find. Stay in this session — do not start another agent."
   fi
   printf '%s\n' "Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or lacks context, ask me what to accomplish and any constraints, then update the issue via 'gh issue edit ${issue_number} -R ${issue_repo}' before coding.

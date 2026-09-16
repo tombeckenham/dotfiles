@@ -147,14 +147,9 @@ ghwt() {
     _ghsb_herdr_wt_ensure_branch "$repo_root" "$found_branch" "$(_ghsb_herdr_issue_label "$issue_number" "$found_branch")" || return 1
     worktree_path="${GHSB_HERDR_WT[path]}"
 
-    # A/B: choose grok or claude deterministically per ticket (issue/PR mod 2; fallback mod of datetime)
-    local selector="${issue_number}"
-    [[ -z "$selector" || "$selector" == "0" ]] && selector=$(date +%s)
+    # A/B: pick from the enabled agent pool (see ghagents)
     local ai_tool
-    case $(( selector % 2 )) in
-      0) ai_tool="grok" ;;
-      *) ai_tool="claude" ;;
-    esac
+    ai_tool=$(_ghsb_pick_ai "$issue_number")
 
     local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
     local ai_cmd="${ai_tool} \"Review progress on GitHub issue #${issue_number}. Run ${issue_view_cmd} for details, then inspect the working tree and recent commits to summarise progress and what remains.\""
@@ -336,17 +331,13 @@ ghwt() {
   _ghsb_herdr_wt_ensure_branch "$repo_root" "$branch_name" "$(_ghsb_herdr_issue_label "$issue_number" "$branch_name")" || return 1
   worktree_path="${GHSB_HERDR_WT[path]}"
 
-  # A/B: choose grok or claude deterministically per ticket (issue/PR mod 2; fallback mod of datetime)
-  local selector="${issue_number}"
-  [[ -z "$selector" || "$selector" == "0" ]] && selector=$(date +%s)
+  # A/B: pick from the enabled agent pool (see ghagents)
   local ai_tool
-  case $(( selector % 2 )) in
-    0) ai_tool="grok" ;;
-    *) ai_tool="claude" ;;
-  esac
+  ai_tool=$(_ghsb_pick_ai "$issue_number")
 
   # Build the AI command
-  local ai_flags="--permission-mode auto"
+  local ai_flags
+  ai_flags=$(_ghsb_ai_flags "$ai_tool")
   local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
   local ai_cmd="${ai_tool} ${ai_flags} \"Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or doesn't have enough context to plan confidently, ask me what I want to accomplish and any constraints, then update the issue body via 'gh issue edit ${issue_number} -R ${issue_repo}' so the context is captured on GitHub before you start.\""
 

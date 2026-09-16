@@ -21,6 +21,8 @@ Need the PR number. If missing, `gh pr list` and ask, or use `ghiprs` when they 
 
 `ghipr --help` for flags.
 
+Checkout updates the worktree from the PR's base (merge, then rebase) when the PR is behind or GitHub reports conflicts. Local only — not pushed. The review agent also runs `/ponytail-review` in parallel with `/review-pr`.
+
 | User intent | Command |
 | --- | --- |
 | Review PR 99 | `ghipr 99` |

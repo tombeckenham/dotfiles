@@ -66,6 +66,7 @@ Env:
   GHSB_API_URL      Cloudflare Worker base URL (e.g. https://ghsb.you.workers.dev)
   GHSB_API_TOKEN    Optional bearer token for the Worker
   GHSB_HOME         State dir (default: ~/.ghsb)
+  GHSB_AGENTS       Agents to pick from (default: "grok claude codex"; see `ghagents`)
 
 Finish pipeline (ghsb finish):
   1. Ensure branch is pushed and a PR exists
@@ -620,10 +621,8 @@ Implemented via ghsb session \`${sid}\`." \
   _ghsb_session_set "$sid" "artifacts" "$art"
 
   # Review stays in the same grok/claude session — do not launch another agent.
-  local review_skill="/pr-review-toolkit:review-pr"
-  [[ "$ai_tool" == "grok" ]] && review_skill="/review-pr"
   local review_prompt
-  review_prompt="${review_skill} ${pr}
+  review_prompt="$(_ghsb_review_cmd "$ai_tool" "$pr")
 
 Also read ${art}/SUMMARY.md and ${art}/files-to-review.txt. Prioritise the ranked files. If a Playwright video was recorded, note it in the review summary."
 
@@ -651,7 +650,7 @@ Fix any issues you find. Stay in this session."
       _ghsb_session_set "$sid" "review_agent" "${session_agent:-$review_target}"
     else
       echo "→ Review-fix in this same agent (not launching a new one):"
-      echo "    ${review_skill} ${pr}"
+      echo "    $(_ghsb_review_cmd "$ai_tool" "$pr")"
       echo "    read ${art}/SUMMARY.md and ${art}/files-to-review.txt"
     fi
   else

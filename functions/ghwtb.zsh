@@ -43,7 +43,7 @@ ghwtb() {
   ai_tool=$(_ghsb_pick_ai "${#GHSB_CHECKOUT[branch]}")
   local ai_prompt
   ai_prompt=$(_ghsb_branch_prompt "${GHSB_CHECKOUT[branch]}" "${GHSB_CHECKOUT[description]:-}")
-  local ai_cmd="${ai_tool} --permission-mode auto $(printf %q "$ai_prompt")"
+  local ai_cmd="${ai_tool} $(_ghsb_ai_flags "$ai_tool") $(printf %q "$ai_prompt")"
 
   splt "$worktree_path"
 

@@ -76,8 +76,12 @@ hsplt() {
 
   local listing
   listing=$(_hsplt_cli "$remote" "$session" workspace list) || {
-    echo "hsplt: could not list Herdr workspaces."
-    [[ -n "$remote" ]] && echo "  ssh to ${remote} and check that herdr is on PATH, then: herdr"
+    echo "hsplt: could not list Herdr workspaces${remote:+ on $remote}."
+    if [[ -n "$remote" ]]; then
+      echo "  1. ssh ${remote}            # host must resolve; accept the host key"
+      echo "  2. command -v herdr         # on that machine (~/.local/bin or brew)"
+      echo "  3. herdr                    # server must be running there"
+    fi
     return 1
   }
 
@@ -333,7 +337,7 @@ _hsplt_cli() {
       dest="${dest%:*}"
     fi
   fi
-  local -a ssh=(ssh -q -o BatchMode=yes -o ConnectTimeout=8)
+  local -a ssh=(ssh -o BatchMode=yes -o ConnectTimeout=8)
   [[ -n "$port" ]] && ssh+=(-p "$port")
   "${ssh[@]}" "$dest" -- "bash -lc $(printf '%q' "$cmd")"
 }
@@ -387,7 +391,7 @@ _hsplt_agent_attach() {
       dest="${dest%:*}"
     fi
   fi
-  local -a ssh=(ssh -t -q -o BatchMode=yes -o ConnectTimeout=8)
+  local -a ssh=(ssh -t -o BatchMode=yes -o ConnectTimeout=8)
   [[ -n "$port" ]] && ssh+=(-p "$port")
   "${ssh[@]}" "$dest" -- "bash -lc $(printf '%q' "$cmd")"
 }

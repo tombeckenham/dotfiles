@@ -142,7 +142,8 @@ Flags:
   --no-focus        Do not switch this pane to the PR worktree
                     (used by ghiprs so several reviews can start at once)
 
-Same checkout as ghsbpr (PR worktree, ranked files, review prompt).
+Same checkout as ghsbpr (PR worktree, update from base if behind/conflicting,
+ranked files, review + ponytail-review prompt).
 The review agent starts in this space unless --no-focus.
 EOF
 }

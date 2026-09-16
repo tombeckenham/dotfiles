@@ -8,10 +8,11 @@
 ghwtpr() {
   if [[ "$1" == "-h" || "$1" == "--help" || -z "$1" ]]; then
     echo "Usage: ghwtpr [-i] <pr-number>"
-    echo "  Check out a PR into a Herdr worktree and run /pr-review-toolkit:review-pr"
+    echo "  Check out a PR into a Herdr worktree and run /review-pr + /ponytail-review"
     echo "  -i, --issue  Optional flag before PR number (e.g. ghwtpr -i 42)"
     echo ""
-    echo "Handles PRs from forks and reports how out of date the PR is."
+    echo "Handles PRs from forks. Updates from the base branch if behind or conflicting"
+    echo "(local merge/rebase, not pushed), then reviews."
     return 0
   fi
 
@@ -33,27 +34,17 @@ ghwtpr() {
 
   _ghsb_checkout_pr "$pr_number" || return 1
   local worktree_path="${GHSB_CHECKOUT[worktree]}"
-  local relevance_note="${GHSB_CHECKOUT[relevance_note]}"
 
-  local ai_tool
+  local ai_tool review_prompt
   ai_tool=$(_ghsb_pick_ai "$pr_number")
-
-  local ai_cmd
-  if [[ "$ai_tool" == "grok" ]]; then
-    ai_cmd="grok \"/review-pr ${pr_number}
-
-${relevance_note}\""
-  else
-    ai_cmd="claude \"/pr-review-toolkit:review-pr ${pr_number}
-
-${relevance_note}\""
-  fi
+  review_prompt=$(_ghsb_pr_review_prompt "$ai_tool")
 
   splt "$worktree_path"
 
   if [[ -n "${TMUX:-}" ]]; then
-    tmux new-window -n "${ai_tool}-review-${pr_number}" -c "$worktree_path" "$ai_cmd"
+    tmux new-window -n "${ai_tool}-review-${pr_number}" -c "$worktree_path" \
+      "${ai_tool} $(printf %q "$review_prompt")"
   else
-    cd "$worktree_path" && eval "$ai_cmd"
+    cd "$worktree_path" && "$ai_tool" "$review_prompt"
   fi
 }
