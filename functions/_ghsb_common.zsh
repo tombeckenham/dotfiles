@@ -11,7 +11,7 @@ _ghsb_init_dirs() {
 # Enabled agents: $GHSB_AGENTS, else ~/.ghsb/agents, else both. Set with `ghagents`.
 _ghsb_agent_pool() {
   local list="${GHSB_AGENTS:-$(cat "$GHSB_HOME/agents" 2>/dev/null)}"
-  echo "${list:-grok claude codex}"
+  echo "${list:-grok claude opencode}"
 }
 
 # Show or set the enabled agent pool: `ghagents` / `ghagents claude` / `ghagents grok claude`
@@ -20,7 +20,7 @@ ghagents() {
   if (( $# )); then
     local a
     for a in "$@"; do
-      [[ "$a" == (grok|claude|codex) ]] || { echo "ghagents: unknown agent '$a' (grok claude codex)" >&2; return 1; }
+      [[ "$a" == (grok|claude|opencode) ]] || { echo "ghagents: unknown agent '$a' (grok claude opencode)" >&2; return 1; }
     done
     print -r -- "$*" > "$GHSB_HOME/agents"
   fi
@@ -32,7 +32,7 @@ _ghsb_pick_ai() {
   local selector="${1:-}"
   [[ -z "$selector" || "$selector" == "0" ]] && selector=$(date +%s)
   local -a pool=(${=$(_ghsb_agent_pool)})
-  (( ${#pool} )) || pool=(grok claude codex)
+  (( ${#pool} )) || pool=(grok claude opencode)
   echo "${pool[$(( selector % ${#pool} + 1 ))]}"
 }
 
@@ -40,30 +40,31 @@ _ghsb_pick_ai() {
 _ghsb_herdr_kind() {
   case "$1" in
     grok) echo "grok" ;;
-    codex) echo "codex" ;;
+    opencode) echo "opencode" ;;
     claude) echo "claude" ;;
     *) echo "claude" ;;
   esac
 }
 
-# CLI flags for agent runs (permission auto, not always-approve/yolo).
-# Grok/Claude: --permission-mode auto. Codex has no such flag — the equivalent is
-# writes confined to the workspace with the model deciding when to ask.
+# CLI flags for agent runs.
+# Grok/Claude: --permission-mode auto.
+# OpenCode: no flags. The TUI asks before each permission. `--auto` approves
+# every permission that is not denied.
 # Note: a CLI --permission-mode overrides [ui] permission_mode in config.toml.
 _ghsb_ai_flags() {
   case "$1" in
-    codex) echo "--sandbox workspace-write --ask-for-approval on-request" ;;
+    opencode) ;;
     *) echo "--permission-mode auto" ;;
   esac
 }
 
-# Opening line that tells <ai_tool> to review PR <pr>. Codex has no PR-review
-# skill installed, so it gets the task in plain English instead of a slash command.
+# Opening line that tells <ai_tool> to review PR <pr>. OpenCode has no PR-review
+# slash command, so it gets the task in plain English.
 # Usage: _ghsb_review_cmd <ai_tool> <pr> [skill_args]
 _ghsb_review_cmd() {
   local ai_tool="$1" pr="$2" args="${3:-}"
   case "$ai_tool" in
-    codex) echo "Review pull request ${pr}: run 'gh pr view ${pr}' and 'gh pr diff ${pr}', then report correctness, security, and test-coverage findings." ;;
+    opencode) echo "Review pull request ${pr}: run 'gh pr view ${pr}' and 'gh pr diff ${pr}', then report correctness, security, and test-coverage findings." ;;
     grok) echo "/review-pr ${pr}${args:+ $args}" ;;
     *) echo "/pr-review-toolkit:review-pr ${pr}${args:+ $args}" ;;
   esac
@@ -72,7 +73,7 @@ _ghsb_review_cmd() {
 # Over-engineering pass to run alongside the review.
 _ghsb_ponytail_cmd() {
   case "$1" in
-    codex) echo "Alongside that, do an over-engineering pass." ;;
+    opencode) echo "Alongside that, do an over-engineering pass." ;;
     *) echo "Run /ponytail-review in parallel with this review (separate subagent; start both before waiting on either)." ;;
   esac
 }
@@ -639,7 +640,6 @@ _ghsb_herdr_launch_in_pane() {
   # Flags only after -- ; long task text goes through agent prompt (official recipe).
   local -a agent_args=()
   case "$ai_tool" in
-    codex) agent_args=(--sandbox workspace-write --ask-for-approval on-request) ;;
     grok|claude) agent_args=(--permission-mode auto) ;;
   esac
 

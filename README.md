@@ -34,7 +34,7 @@ ghsb status|attach|links|list|rm [session-id]
 1. Push branch and ensure a PR exists  
 2. Rank changed files for manual review  
 3. `--video`: Playwright walkthrough if UI files changed  
-4. `--review-fix`: prompt the same grok/claude/codex session to review and fix  
+4. `--review-fix`: prompt the same grok/claude/opencode session to review and fix  
 5. Print PR, github.dev, dev env, and preview links  
 
 ```sh
@@ -80,7 +80,7 @@ What it does:
 1. Requires `HERDR_PANE_ID` — run it from inside Herdr (the repo root space is the usual place).
 2. Creates or reuses the issue, branch, and Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}` (grouped under the repo in the sidebar).
 3. Runs `_worktree_setup`, labels the worktree `{N}-{slug}`, and focuses that space. The space you ran it from stays as-is.
-4. Starts grok/claude/codex in the worktree pane once that shell is idle.
+4. Starts grok/claude/opencode in the worktree pane once that shell is idle.
 5. Writes a `ghsb` session. Default agent wrap-up is push + PR only.
 
 Source: `functions/ghi.zsh`.
@@ -117,7 +117,7 @@ What it does:
 2. Checks out the PR into a Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}` (same as `ghsbpr` / `ghwtpr`), including fork PRs via `gh pr checkout`.
 3. If the PR is behind its base or GitHub reports conflicts, merges (then rebases if the merge conflicts) the base branch into the worktree for review. Local only — does not push. Real conflicts abort and the review runs against the PR as authored.
 4. Ranks changed files, writes a review session, focuses the PR worktree space (repo root stays as-is), and opens herdr-reviewr in a right split.
-5. Starts grok/claude/codex with `/review-pr` (or `/pr-review-toolkit:review-pr`) plus a parallel `/ponytail-review` in the worktree pane once the shell is idle.
+5. Starts grok/claude/opencode with `/review-pr` (or `/pr-review-toolkit:review-pr`) plus a parallel `/ponytail-review` in the worktree pane once the shell is idle.
 
 Source: `functions/ghipr.zsh`.
 
@@ -173,7 +173,7 @@ Source: `functions/ghwt.zsh`.
 
 ### `ghwtv` — GitHub issue + worktree + agent in Herdr
 
-Same issue → branch → worktree as `ghwt`, with grok/claude/codex in Herdr. Does **not** open Cursor or terminal-code (tode). Pass `--tode` for the old split.
+Same issue → branch → worktree as `ghwt`, with grok/claude/opencode in Herdr. Does **not** open Cursor or terminal-code (tode). Pass `--tode` for the old split.
 
 ```sh
 ghwtv [-c] [-f] [-b <branch>] [-i <number>] [--tode] [--video] [--review-fix] "Issue title"
@@ -184,7 +184,7 @@ Detection: `HERDR_ENV=1` plus `HERDR_PANE_ID` means you are already inside Herdr
 
 | Where you run it | What happens |
 | --- | --- |
-| Inside Herdr | Starts grok/claude/codex in this pane once the shell is idle. `--tode` also splits and opens terminal-code. |
+| Inside Herdr | Starts grok/claude/opencode in this pane once the shell is idle. `--tode` also splits and opens terminal-code. |
 | Outside Herdr | Uses the worktree workspace, same agent, prints `herdr` so you can attach. |
 
 Source: `functions/ghwtv.zsh`.
@@ -201,7 +201,7 @@ Detection: `HERDR_ENV=1` plus `HERDR_PANE_ID` means you are already inside Herdr
 
 | Where you run it | What happens |
 | --- | --- |
-| Inside Herdr | Opens reviewr in a right split on this pane (cwd = PR worktree), starts grok/claude/codex with `/review-pr` in this pane once the shell is idle. |
+| Inside Herdr | Opens reviewr in a right split on this pane (cwd = PR worktree), starts grok/claude/opencode with `/review-pr` in this pane once the shell is idle. |
 | Outside Herdr | Creates a Herdr workspace at the worktree, same split + agent, prints `herdr` so you can attach. |
 
 Needs the plugin once: `herdr plugin install persiyanov/herdr-reviewr`.
@@ -375,12 +375,12 @@ Every launcher picks the agent with `_ghsb_pick_ai` (ticket number mod pool size
 ```bash
 ghagents                      # show the current pool
 ghagents claude               # out of Grok credits — send everything to Claude
-ghagents grok claude codex    # back to the default three-way split
+ghagents grok claude opencode # back to the default three-way split
 ```
 
-Known agents: `grok`, `claude`, `codex`. `GHSB_AGENTS="claude"` overrides the file for one shell or one command.
+Known agents: `grok`, `claude`, `opencode`. `GHSB_AGENTS="claude"` overrides the file for one shell or one command.
 
-Codex differs from the other two in two places, both handled in `functions/_ghsb_common.zsh`: it takes `--sandbox workspace-write --ask-for-approval on-request` instead of `--permission-mode auto`, and it has no PR-review skill installed, so `_ghsb_review_cmd` hands it the review task in plain English instead of `/review-pr`.
+OpenCode differs from the other two in `functions/_ghsb_common.zsh`: it starts with no extra flags, so the TUI asks before each permission, and `_ghsb_review_cmd` hands it the review task in plain English. Grok and Claude still get `--permission-mode auto` and their review slash commands.
 
 This repo is a Grok / Claude Code marketplace. The `ghsb` plugin exposes `/ghi`, `/ghb`, `/ghipr`, `/ghiprs`, and `/ghwtb` so an agent can call those functions (they live in `~/.zsh_functions` via `bootstrap.sh`; a non-interactive shell will not have them unless it uses the plugin runner).
 

@@ -66,7 +66,7 @@ Env:
   GHSB_API_URL      Cloudflare Worker base URL (e.g. https://ghsb.you.workers.dev)
   GHSB_API_TOKEN    Optional bearer token for the Worker
   GHSB_HOME         State dir (default: ~/.ghsb)
-  GHSB_AGENTS       Agents to pick from (default: "grok claude codex"; see `ghagents`)
+  GHSB_AGENTS       Agents to pick from (default: "grok claude opencode"; see `ghagents`)
 
 Finish pipeline (ghsb finish):
   1. Ensure branch is pushed and a PR exists
