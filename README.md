@@ -220,6 +220,21 @@ Removes the Herdr worktree (`herdr worktree remove`) for that issue. With no arg
 
 Source: `functions/ghwtrm.zsh`.
 
+### `ghreap` — stop finished agents
+
+```sh
+ghreap [-n|--dry-run] [-y|--yes]
+```
+
+`ghi` / `ghipr` / `ghwt` start an agent per ticket and nothing ever stopped them, so finished work kept an agent (and its worktree) resident. `ghreap` walks `herdr agent list`, and for each agent sitting in a linked worktree whose branch has a **merged or closed** PR:
+
+- clean and pushed → `herdr worktree remove` (agent stops, worktree deleted)
+- uncommitted changes or unpushed commits → `herdr workspace close` (agent stops, **files kept**)
+
+Never touches the current pane, an agent that is still working, or a branch with no PR yet. Prints the plan and asks before doing anything; `-n` just lists.
+
+Source: `functions/ghreap.zsh`. Check: `scripts/test_ghreap.zsh`.
+
 ### `ghwtb` — branch + worktree (no issue)
 
 ```sh
