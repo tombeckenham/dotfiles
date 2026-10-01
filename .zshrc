@@ -49,6 +49,14 @@ python3() { pyenv; python3 "$@" }
 pip() { pyenv; pip "$@" }
 pip3() { pyenv; pip3 "$@" }
 
+# Secrets from the Doppler "dotfiles" project. Reads Doppler's encrypted local
+# cache (~60ms, a live fetch is ~1s) and refreshes it in the background for the next shell.
+if command -v doppler &>/dev/null; then
+  eval "$(doppler secrets download -p dotfiles -c dev --no-file --fallback-only 2>/dev/null \
+    | jq -r 'to_entries[] | select(.key | startswith("DOPPLER_") | not) | "export \(.key)=\(.value | @sh)"')"
+  doppler secrets download -p dotfiles -c dev --no-file >/dev/null 2>&1 &!
+fi
+
 # Source all function files
 for f in ~/.zsh_functions/*.zsh; source $f
 

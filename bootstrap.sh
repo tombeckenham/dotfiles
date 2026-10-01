@@ -218,16 +218,25 @@ if ! command -v grok &>/dev/null; then
   curl -fsSL https://x.ai/cli/install.sh | bash
 fi
 
-# 15. Power management (always-on server mode)
+# 15. Doppler (secrets .zshrc exports live in the "dotfiles" project)
+if ! doppler me &>/dev/null; then
+  echo "==> Logging in to Doppler..."
+  doppler login
+fi
+# Seed the local cache .zshrc reads from
+doppler secrets download -p dotfiles -c dev --no-file >/dev/null \
+  || echo "    WARNING: couldn't fetch Doppler project 'dotfiles'. Add secrets with: doppler secrets set -p dotfiles -c dev KEY"
+
+# 16. Power management (always-on server mode)
 echo "==> Configuring power management..."
 sudo pmset -a sleep 0 disksleep 0
 sudo pmset -a displaysleep 5
 sudo pmset -a autorestart 1
 
-# 16. Install lefthook for pre-commit secret scanning
+# 17. Install lefthook for pre-commit secret scanning
 echo "==> Installing lefthook hooks..."
 (cd "$DOTFILES_DIR" && lefthook install)
 
-# 17. Done
+# 18. Done
 echo ""
 echo "==> Done! Open a new terminal to load the updated config."

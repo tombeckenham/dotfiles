@@ -164,12 +164,13 @@ hsplt() {
 
   if [[ -n "$wt_path" ]]; then
     if [[ -t 1 ]]; then
+      # Cursor covers this terminal, so the banner has to be on screen first.
+      # A new Ghostty window can report a tiny grid until it is mapped.
+      _hsplt_wait_for_banner_room || true
       _splt_banner
+      sleep 0.4
     fi
     _hsplt_open_cursor "$wt_path" "$remote" || true
-    if [[ -t 1 ]]; then
-      _splt_wait
-    fi
   else
     echo "No worktree path on this workspace; attaching Herdr without Cursor."
   fi
@@ -205,9 +206,8 @@ _hsplt_help() {
 hsplt — open Cursor + attach a running Herdr workspace
 
 Looks up a live Herdr workspace for an issue, PR, or label. Default: open a
-new Ghostty window, show PICK ME, tile Cursor left, then
-`herdr agent attach` that space's agent (so two windows can show different
-spaces). Does not create a worktree or start an agent.
+new Ghostty window that runs `hsplt --here` there (PICK ME, Cursor left, then
+`herdr agent attach`). Does not create a worktree or start an agent.
 
   hsplt 1220                      # new window (issue 1220, else PR)
   hsplt pr 1178
@@ -218,7 +218,7 @@ spaces). Does not create a worktree or start an agent.
 
 Flags:
   -n, --new-window    New Ghostty window (default)
-  --here              Use this terminal (PICK ME + attach here)
+  --here              This terminal: PICK ME, then Cursor, then attach.
                       If Ghostty is full screen, hsplt exits it first.
   -r, --remote HOST   Lookup/attach over SSH (Host or user@host)
   -s, --session NAME  Named Herdr session (HERDR_SESSION / --session)
@@ -265,50 +265,59 @@ OSA
   sleep 1
 }
 
+# _splt_banner is 32 columns by 7 rows, and it keeps one row for the cursor.
+# Wait until this tty is that big. A new window can report a tiny grid first.
+# Stop after 4s so a stuck window still continues on to Cursor.
+_hsplt_wait_for_banner_room() {
+  local cols lines i
+  for i in {1..40}; do
+    cols=$(tput cols 2>/dev/null || true)
+    lines=$(tput lines 2>/dev/null || true)
+    if [[ "$cols" == <-> && "$lines" == <-> ]] && (( cols >= 32 && lines >= 8 )); then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
 # New Ghostty window, then run `hsplt --here …` in that shell.
-# File → New Window (same app). Paste the command; do not type it (Herdr
-# swallows keystrokes) and do not open a .command file (shows up as /tmp).
+# AppleScript `new window` + `initial input` types into the login shell.
+# Do not paste keystrokes (Herdr swallows them) and do not pass `-e /bin/zsh`
+# (macOS asks to allow executing /bin/zsh). Do not set `command`: that
+# replaces the shell, and hsplt is a function.
 _hsplt_ghostty_window() {
   local dir="$1"
   shift
-  local cmd prev
+  local cmd i
   cmd="cd $(printf '%q' "$dir") && hsplt $(printf '%q ' "$@")"
 
-  if ! pgrep -i ghostty >/dev/null 2>&1; then
-    open -na Ghostty.app --args --working-directory="$dir" \
-      -e /bin/zsh -lic "$cmd" || {
+  if ! osascript -e 'tell application "Ghostty" to get version' >/dev/null 2>&1; then
+    open -a Ghostty.app || {
       echo "hsplt: could not open Ghostty. Run:"
       echo "  $cmd"
       return 1
     }
-    return 0
+    for i in {1..40}; do
+      osascript -e 'tell application "Ghostty" to get version' >/dev/null 2>&1 && break
+      sleep 0.25
+    done
   fi
 
-  prev=$(pbpaste 2>/dev/null || true)
-  printf '%s' "$cmd" | pbcopy
-  if ! osascript >/dev/null <<'OSA'
-    tell application "Ghostty" to activate
-    delay 0.25
-    tell application "System Events"
-      tell process "Ghostty"
-        click menu item "New Window" of menu "File" of menu bar 1
-      end tell
-    end tell
-    delay 1.2
-    tell application "System Events" to keystroke "v" using command down
-    delay 0.1
-    tell application "System Events" to key code 36
+  if ! osascript - "$dir" "$cmd" >/dev/null <<'OSA'
+on run argv
+  set workDir to item 1 of argv
+  set shellCmd to item 2 of argv
+  tell application "Ghostty"
+    new window with configuration {initial working directory:workDir, initial input:shellCmd & return}
+  end tell
+end run
 OSA
   then
     echo "hsplt: could not open a new Ghostty window. Run:"
     echo "  $cmd"
-    printf '%s' "$prev" | pbcopy
     return 1
   fi
-  (
-    sleep 1
-    printf '%s' "$prev" | pbcopy
-  ) &
   echo "New Ghostty window: $cmd"
 }
 
