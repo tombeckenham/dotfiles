@@ -5,6 +5,10 @@ DOTFILES_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "==> Bootstrapping from $DOTFILES_DIR"
 
+# CLI installers below drop binaries here; .zshrc isn't loaded in this script,
+# so without this every re-run would reinstall them.
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.opencode/bin:$HOME/.grok/bin:/opt/homebrew/bin:$PATH"
+
 # 1. Xcode Command Line Tools
 if ! xcode-select -p &>/dev/null; then
   echo "==> Installing Xcode Command Line Tools..."
@@ -218,7 +222,29 @@ if ! command -v grok &>/dev/null; then
   curl -fsSL https://x.ai/cli/install.sh | bash
 fi
 
-# 15. Doppler (secrets .zshrc exports live in the "dotfiles" project)
+# 15. herdr-reviewr (PR review split used by ghipr/ghwtprv)
+if command -v herdr &>/dev/null; then
+  if ! herdr plugin list 2>/dev/null | grep -q persiyanov.reviewr; then
+    echo "==> Installing herdr-reviewr..."
+    herdr plugin install -y persiyanov/herdr-reviewr
+  fi
+else
+  echo "    WARNING: herdr not found. ghi/ghipr/ghsb need it: https://herdr.dev"
+fi
+
+# 16. ghsb agent plugin (/ghi, /ghipr, ...) from this repo's marketplace
+if ! claude plugin list 2>/dev/null | grep -q 'ghsb@dotfiles'; then
+  echo "==> Installing ghsb Claude Code plugin..."
+  claude plugin marketplace add tombeckenham/dotfiles
+  claude plugin install ghsb@dotfiles
+fi
+if ! grok plugin list 2>/dev/null | grep -q 'ghsb'; then
+  echo "==> Installing ghsb Grok plugin..."
+  grok plugin marketplace add tombeckenham/dotfiles
+  grok plugin install ghsb --trust
+fi
+
+# 17. Doppler (secrets .zshrc exports live in the "dotfiles" project)
 if ! doppler me &>/dev/null; then
   echo "==> Logging in to Doppler..."
   doppler login
@@ -227,16 +253,16 @@ fi
 doppler secrets download -p dotfiles -c dev --no-file >/dev/null \
   || echo "    WARNING: couldn't fetch Doppler project 'dotfiles'. Add secrets with: doppler secrets set -p dotfiles -c dev KEY"
 
-# 16. Power management (always-on server mode)
+# 18. Power management (always-on server mode)
 echo "==> Configuring power management..."
 sudo pmset -a sleep 0 disksleep 0
 sudo pmset -a displaysleep 5
 sudo pmset -a autorestart 1
 
-# 17. Install lefthook for pre-commit secret scanning
+# 19. Install lefthook for pre-commit secret scanning
 echo "==> Installing lefthook hooks..."
 (cd "$DOTFILES_DIR" && lefthook install)
 
-# 18. Done
+# 20. Done
 echo ""
 echo "==> Done! Open a new terminal to load the updated config."
