@@ -187,7 +187,7 @@ fi
 # 9. Install language runtimes
 echo "==> Installing language runtimes..."
 eval "$(fnm env)"
-fnm install --lts
+fnm install --latest
 eval "$(command pyenv init -)"
 pyenv install --skip-existing 3.12
 pyenv global 3.12

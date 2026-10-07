@@ -13,7 +13,7 @@ brew "lefthook"
 brew "tmux"
 brew "zoxide"
 brew "pinentry-mac"
-brew "dopplerhq/cli/doppler"
+cask "dopplerhq/cli/doppler"
 
 # GUI apps
 cask "ghostty"

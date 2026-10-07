@@ -331,7 +331,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 5. Authenticates `gh` with the `user` and `write:gpg_key` scopes (refreshes the token if those scopes aren't already granted).
 6. Configures git globally: LFS filters, `commit.gpgsign=true`, `tag.gpgSign=true`, and `gh auth setup-git` for HTTPS token auth.
 7. If git identity isn't set, prompts for name/email (auto-detected from existing config and the GitHub API), offers to generate an Ed25519 GPG signing key, and registers the key with GitHub via `gh gpg-key add`.
-8. Installs Node LTS via `fnm`, Python 3.12 via `pyenv`, and Bun via the official installer.
+8. Installs the latest Node via `fnm`, Python 3.12 via `pyenv`, and Bun via the official installer.
 9. `bun install -g vercel wrangler`, then installs the Claude Code, OpenCode, and Grok Build CLIs.
 10. Installs the `persiyanov/herdr-reviewr` Herdr plugin (warns if [Herdr](https://herdr.dev) is missing), then the `ghsb` plugin for Claude Code and Grok from this repo's marketplace.
 11. Logs in to Doppler and caches the `dotfiles` project's secrets (e.g. `TYPESAFE_API_KEY`). `.zshrc` exports them from Doppler's encrypted local cache on shell start.
