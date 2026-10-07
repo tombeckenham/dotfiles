@@ -3,7 +3,7 @@
 #        ghsb review <pr-number>   # same entry via ghsb
 #
 # Checks out the PR into a worktree (same as ghwtpr), ranks files for manual review,
-# launches the review agent in Herdr with --permission-mode auto, and prints links.
+# launches the review agent in Herdr (grok: --always-approve, claude: --permission-mode auto), and prints links.
 
 ghsbpr() {
   if [[ "$1" == "-h" || "$1" == "--help" || -z "$1" ]]; then
@@ -15,7 +15,7 @@ ghsbpr() {
     echo "Like ghwtpr, but uses Herdr instead of tmux/Cursor, ranks files for"
     echo "manual review, and prints github.dev / preview links."
     echo "Inside Herdr: review stays in this space/agent (no new workspace)."
-    echo "Agent permission mode: auto (not always-approve)."
+    echo "Agent permission mode: always-approve for grok, auto for claude."
     return 0
   fi
 

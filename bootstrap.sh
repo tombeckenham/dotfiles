@@ -35,7 +35,7 @@ if [[ ! -d ~/.antidote ]]; then
 fi
 
 # 5. Create directories
-mkdir -p ~/.gnupg ~/.config
+mkdir -p ~/.gnupg ~/.config ~/.config/herdr
 chmod 700 ~/.gnupg
 
 # 6. Symlink config files
@@ -45,6 +45,7 @@ echo "==> Creating symlinks..."
 symlink "$DOTFILES_DIR/.zshrc"           "$HOME/.zshrc"
 symlink "$DOTFILES_DIR/.zsh_plugins.txt" "$HOME/.zsh_plugins.txt"
 symlink "$DOTFILES_DIR/starship.toml"    "$HOME/.config/starship.toml"
+symlink "$DOTFILES_DIR/herdr/config.toml" "$HOME/.config/herdr/config.toml"
 symlink "$DOTFILES_DIR/gpg.conf"         "$HOME/.gnupg/gpg.conf"
 symlink "$DOTFILES_DIR/gpg-agent.conf"   "$HOME/.gnupg/gpg-agent.conf"
 symlink "$DOTFILES_DIR/functions"        "$HOME/.zsh_functions"

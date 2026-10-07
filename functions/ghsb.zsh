@@ -7,7 +7,7 @@
 #
 # Default backend: local worktree + Herdr agent (Ghostty-friendly).
 # With GHSB_API_URL (or --cf): also provision a Cloudflare Sandbox for preview/dev.
-# Agents use permission-mode auto (not always-approve).
+# Grok starts with --always-approve. Claude uses permission-mode auto.
 
 ghsb() {
   local sub="${1:-}"
@@ -49,7 +49,7 @@ Subcommands:
   ghsb list          List sessions
   ghsb rm [id]       Remove session metadata (+ optional CF destroy)
 
-Permission mode: auto for grok/claude (not always-approve).
+Permission mode: always-approve for grok, auto for claude.
 
 Flags (start):
   -c, --current     Branch from current branch

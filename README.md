@@ -49,7 +49,7 @@ ghsb links
 
 Cloudflare Worker lives in `sandbox/` — see `sandbox/README.md`. Session state: `~/.ghsb/sessions/`.
 
-Agents use **permission-mode auto** (not always-approve).
+Grok starts with **always-approve**. Claude uses **permission-mode auto**. OpenCode asks before each permission.
 
 Source: `functions/ghsb.zsh`, `functions/_ghsb_common.zsh`, `scripts/ghsb-record-preview.mjs`.
 
@@ -121,16 +121,16 @@ What it does:
 
 Source: `functions/ghipr.zsh`.
 
-### `ghiprs` — review every assigned PR with no session
+### `ghiprs` — review every assigned PR whose workspace is closed
 
-From the repo root Herdr space. For each open PR assigned to you that does not already have a `ghsb` session, runs `ghipr --no-focus` (worktree + herdr-reviewr + review agent). This pane stays on the repo root.
+From the repo root Herdr space. For each open PR assigned to you whose Herdr workspace is not open, runs `ghipr --no-focus` (worktree + herdr-reviewr + review agent). This pane stays on the repo root.
 
 ```sh
 ghiprs            # start reviews
 ghiprs --dry-run  # print start/skip only
 ```
 
-Skip rule: `~/.ghsb/sessions/{repo}-pr-{N}.json` exists, or any `{repo}-*` session whose `pr` field is that number.
+Skip rule: a ghsb session for that PR has a `herdr_workspace` that is still in `herdr workspace list`, or the PR branch's worktree is already open in a live workspace. Otherwise the worktree directory is reopened if it exists. If it does not, one is created, including when the local branch is still around after the old worktree was removed.
 
 Source: `functions/ghiprs.zsh`.
 
@@ -327,7 +327,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 1. Installs Xcode Command Line Tools and Homebrew if either is missing.
 2. Runs `brew bundle` against `Brewfile` — installs starship, fnm, pnpm, pyenv, gh, jq, gnupg, lefthook, tmux, zoxide, pinentry-mac, doppler, plus the Ghostty, Cursor and OrbStack casks.
 3. Clones [Antidote](https://github.com/mattmc3/antidote) (zsh plugin manager) into `~/.antidote`.
-4. Symlinks `.zshrc`, `.zsh_plugins.txt`, `starship.toml`, `gpg.conf`, `gpg-agent.conf` and `functions/` into `$HOME` (and `~/.config`, `~/.gnupg`).
+4. Symlinks `.zshrc`, `.zsh_plugins.txt`, `starship.toml`, `herdr/config.toml`, `gpg.conf`, `gpg-agent.conf` and `functions/` into `$HOME` (and `~/.config`, `~/.config/herdr`, `~/.gnupg`).
 5. Authenticates `gh` with the `user` and `write:gpg_key` scopes (refreshes the token if those scopes aren't already granted).
 6. Configures git globally: LFS filters, `commit.gpgsign=true`, `tag.gpgSign=true`, and `gh auth setup-git` for HTTPS token auth.
 7. If git identity isn't set, prompts for name/email (auto-detected from existing config and the GitHub API), offers to generate an Ed25519 GPG signing key, and registers the key with GitHub via `gh gpg-key add`.
@@ -343,6 +343,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 - **`.zshrc`** — loads Antidote plugins, sets up the Starship prompt, initialises zoxide (`z`, `zi`), adds Bun / pnpm / fnm to `PATH`, lazy-loads pyenv on first `python`/`pip` use, and auto-sources every `*.zsh` file in `~/.zsh_functions/`.
 - **`.zsh_plugins.txt`** — `zsh-autosuggestions`, `zsh-syntax-highlighting`, `zsh-completions`, `zsh-history-substring-search`, plus the `git`, `node`, `npm` and `macos` ohmyzsh plugin paths.
 - **`starship.toml`** — fast prompt: directory (truncated to repo root), git branch and status, command duration if it took longer than 2s. Language modules are disabled to keep prompt rendering quick.
+- **`herdr/config.toml`** — Herdr config, symlinked to `~/.config/herdr/config.toml`. Turns off onboarding, enables kitty graphics, sorts the agent panel by spaces, and binds cmd+r to toggle reviewr.
 - **`gpg.conf` / `gpg-agent.conf`** — `auto-key-retrieve`, `pinentry-mac`, 10-minute default cache (2-hour max).
 - **`lefthook.yml`** — pre-commit hook that greps staged files for private keys, OpenAI keys (`sk-…`), GitHub tokens (`ghp_…`) and PEM headers, and blocks the commit if any are found.
 
@@ -355,6 +356,8 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 ├── .zshrc                 # Shell config
 ├── .zsh_plugins.txt       # Antidote plugin list
 ├── starship.toml          # Prompt
+├── herdr/
+│   └── config.toml        # Herdr config → ~/.config/herdr/config.toml
 ├── gpg.conf               # GPG settings
 ├── gpg-agent.conf         # GPG agent
 ├── lefthook.yml           # Pre-commit hooks
@@ -397,7 +400,7 @@ ghagents grok claude opencode # back to the default three-way split
 
 Known agents: `grok`, `claude`, `opencode`. `GHSB_AGENTS="claude"` overrides the file for one shell or one command.
 
-OpenCode differs from the other two in `functions/_ghsb_common.zsh`: it starts with no extra flags, so the TUI asks before each permission, and `_ghsb_review_cmd` hands it the review task in plain English. Grok and Claude still get `--permission-mode auto` and their review slash commands.
+OpenCode differs from the other two in `functions/_ghsb_common.zsh`: it starts with no extra flags, so the TUI asks before each permission, and `_ghsb_review_cmd` hands it the review task in plain English. Grok starts with `--always-approve`. Claude gets `--permission-mode auto`. Both still get their review slash commands.
 
 This repo is a Grok / Claude Code marketplace. The `ghsb` plugin exposes `/ghi`, `/ghb`, `/ghipr`, `/ghiprs`, and `/ghwtb` so an agent can call those functions (they live in `~/.zsh_functions` via `bootstrap.sh`; a non-interactive shell will not have them unless it uses the plugin runner).
 
@@ -417,7 +420,7 @@ Local checkout instead of GitHub:
 grok plugin marketplace add ~/code/dotfiles
 ```
 
-`/ghiprs` is the fan-out: every open PR assigned to you with no ghsb session gets its own worktree and review agent, without leaving the current pane.
+`/ghiprs` is the fan-out: every open PR assigned to you whose Herdr workspace is closed gets a worktree (reopened or created) and a review agent, without leaving the current pane.
 
 ## Caveats / forking notes
 

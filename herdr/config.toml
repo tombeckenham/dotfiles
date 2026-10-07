@@ -1,0 +1,13 @@
+onboarding = false
+
+[experimental]
+kitty_graphics = true
+
+[ui]
+agent_panel_sort = "spaces"
+
+[[keys.command]]
+key = "cmd+r"
+type = "plugin_action"
+command = "persiyanov.reviewr.toggle"
+description = "toggle reviewr"

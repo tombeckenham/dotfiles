@@ -47,12 +47,13 @@ _ghsb_herdr_kind() {
 }
 
 # CLI flags for agent runs.
-# Grok/Claude: --permission-mode auto.
+# Grok: --always-approve. A CLI flag overrides [ui] permission_mode in config.toml.
+# Claude: --permission-mode auto.
 # OpenCode: no flags. The TUI asks before each permission. `--auto` approves
 # every permission that is not denied.
-# Note: a CLI --permission-mode overrides [ui] permission_mode in config.toml.
 _ghsb_ai_flags() {
   case "$1" in
+    grok) echo "--always-approve" ;;
     opencode) ;;
     *) echo "--permission-mode auto" ;;
   esac
@@ -639,9 +640,9 @@ _ghsb_herdr_launch_in_pane() {
 
   # Flags only after -- ; long task text goes through agent prompt (official recipe).
   local -a agent_args=()
-  case "$ai_tool" in
-    grok|claude) agent_args=(--permission-mode auto) ;;
-  esac
+  local flags
+  flags=$(_ghsb_ai_flags "$ai_tool")
+  [[ -n "$flags" ]] && agent_args=(${=flags})
 
   local start_out attempt=1 started=0 start_ec
   while (( attempt <= 4 )); do
@@ -1341,38 +1342,45 @@ _ghsb_checkout_pr() {
     echo "Worktree already exists at: $worktree_path"
     _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
   else
-    if git show-ref --verify --quiet "refs/heads/${local_branch}"; then
-      echo "Error: local branch '${local_branch}' already exists but has no worktree."
-      echo "Delete it first (git branch -D ${local_branch}) or resolve manually."
-      return 1
-    fi
-
     echo "Checking out PR #${pr_number} (branch '${local_branch}')..."
     mkdir -p "$(dirname "$herdr_path")"
     worktree_path="$herdr_path"
-    if ! git worktree add --detach "$worktree_path" >/dev/null; then
-      echo "Failed to create worktree"
-      return 1
-    fi
-
-    if ! (cd "$worktree_path" && gh pr checkout "${checkout_args[@]}"); then
-      echo "Failed to check out PR #${pr_number}"
-      git worktree remove --force "$worktree_path" 2>/dev/null
-      git branch -D "$local_branch" 2>/dev/null
-      return 1
-    fi
-
-    if [[ "$is_cross" == "true" ]]; then
-      if [[ "$can_modify" == "true" ]]; then
-        echo "Maintainer edits allowed — pushes go back to ${fork_owner}'s fork."
-      else
-        echo "Note: maintainer edits are NOT allowed on this PR (read-only review)."
+    # gh pr checkout refuses when the local branch already exists, so attach
+    # a worktree to that branch and refresh it to PR HEAD below.
+    if git show-ref --verify --quiet "refs/heads/${local_branch}"; then
+      if ! git worktree add "$worktree_path" "$local_branch"; then
+        echo "Failed to create worktree for existing branch '${local_branch}'"
+        return 1
       fi
-    fi
+      echo "Worktree created at: $worktree_path"
+      _worktree_setup "$worktree_path"
+      _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
+      wt_existed=true
+    else
+      if ! git worktree add --detach "$worktree_path" >/dev/null; then
+        echo "Failed to create worktree"
+        return 1
+      fi
 
-    echo "Worktree created at: $worktree_path"
-    _worktree_setup "$worktree_path"
-    _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
+      if ! (cd "$worktree_path" && gh pr checkout "${checkout_args[@]}"); then
+        echo "Failed to check out PR #${pr_number}"
+        git worktree remove --force "$worktree_path" 2>/dev/null
+        git branch -D "$local_branch" 2>/dev/null
+        return 1
+      fi
+
+      if [[ "$is_cross" == "true" ]]; then
+        if [[ "$can_modify" == "true" ]]; then
+          echo "Maintainer edits allowed — pushes go back to ${fork_owner}'s fork."
+        else
+          echo "Note: maintainer edits are NOT allowed on this PR (read-only review)."
+        fi
+      fi
+
+      echo "Worktree created at: $worktree_path"
+      _worktree_setup "$worktree_path"
+      _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
+    fi
   fi
   _ghsb_herdr_wt_apply_checkout
 
@@ -1616,21 +1624,87 @@ _ghsb_open_reviewr() {
   return 0
 }
 
-# True if this repo already has a ghsb session for PR <n>.
-_ghsb_pr_session_exists() {
-  local pr="$1" repo_root repo_name f
+# Session files in this repo for PR <n>. One path per line.
+_ghsb_pr_session_files() {
+  local pr="$1" repo_root repo_name f canonical
   [[ "$pr" =~ ^[0-9]+$ ]] || return 1
   repo_root=$(_ghsb_repo_root) || return 1
   repo_name=$(basename "$repo_root")
-  [[ -f "$(_ghsb_session_path "${repo_name}-pr-${pr}")" ]] && return 0
   _ghsb_init_dirs
-  for f in "$GHSB_SESSIONS_DIR"/*.json; do
-    [[ -f "$f" ]] || continue
+  canonical="$(_ghsb_session_path "${repo_name}-pr-${pr}")"
+  [[ -f "$canonical" ]] && printf '%s\n' "$canonical"
+  for f in "$GHSB_SESSIONS_DIR"/*.json(N); do
+    [[ "$f" == "$canonical" ]] && continue
     jq -e --arg n "$pr" --arg prefix "${repo_name}-" \
       '((.pr | tostring) == $n) and ((.id // "") | startswith($prefix))' \
-      "$f" >/dev/null 2>&1 && return 0
+      "$f" >/dev/null 2>&1 && printf '%s\n' "$f"
   done
-  return 1
+  return 0
+}
+
+# True if this repo already has a ghsb session for PR <n>.
+_ghsb_pr_session_exists() {
+  local files
+  files=$(_ghsb_pr_session_files "$1") || return 1
+  [[ -n "$files" ]]
+}
+
+# True if $1 is a non-empty exact line of $2.
+_ghsb_id_listed() {
+  local id="$1" ids="$2"
+  [[ -n "$id" && -n "$ids" ]] || return 1
+  printf '%s\n' "$ids" | grep -Fxq -- "$id"
+}
+
+# What ghiprs should do for one assigned PR.
+# Args: pr, branch, live workspace ids (one per line),
+#       open worktrees as branch<TAB>path<TAB>workspace_id (one per line).
+# Prints skip, reopen, or new.
+# skip: the session workspace, or this branch's open worktree, is still live.
+# reopen: a worktree directory exists and no workspace is open for it.
+# new: nothing on disk; ghipr creates a worktree.
+_ghsb_pr_review_action() {
+  local pr="$1" branch="$2" live_ids="$3" open_wts="$4"
+  local obr open_path ow files f ws wt repo_root slug herdr_path git_wt
+  local have_dir=false
+
+  if [[ -n "$open_wts" ]]; then
+    while IFS=$'\t' read -r obr open_path ow; do
+      [[ -n "$branch" && "$obr" == "$branch" ]] || continue
+      if _ghsb_id_listed "$ow" "$live_ids"; then
+        echo skip
+        return 0
+      fi
+    done <<< "$open_wts"
+  fi
+
+  files=$(_ghsb_pr_session_files "$pr") || files=""
+  if [[ -n "$files" ]]; then
+    while IFS= read -r f; do
+      [[ -f "$f" ]] || continue
+      ws=$(jq -r '.herdr_workspace // empty' "$f")
+      if _ghsb_id_listed "$ws" "$live_ids"; then
+        echo skip
+        return 0
+      fi
+      wt=$(jq -r '.worktree // empty' "$f")
+      [[ -n "$wt" && -d "$wt" ]] && have_dir=true
+    done <<< "$files"
+  fi
+
+  repo_root=$(_ghsb_repo_root) || { echo new; return 0; }
+  git_wt=$(_ghsb_git_wt_find_branch "$repo_root" "$branch") || git_wt=""
+  [[ -n "$git_wt" && -d "$git_wt" ]] && have_dir=true
+  slug=$(_ghsb_herdr_branch_slug "$branch")
+  herdr_path="$(_ghsb_herdr_worktrees_root)/$(basename "$repo_root")/$slug"
+  [[ -d "$herdr_path" ]] && have_dir=true
+  [[ -d "$HOME/.claude/worktrees/$(basename "$repo_root")-${pr}" ]] && have_dir=true
+
+  if $have_dir; then
+    echo reopen
+  else
+    echo new
+  fi
 }
 
 # Start an agent in the worktree's Herdr space. From the repo root, that means

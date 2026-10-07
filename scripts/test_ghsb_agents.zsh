@@ -33,8 +33,8 @@ for a in grok claude opencode; do
   [[ $(_ghsb_herdr_kind $a) == $a ]] || fail "kind-$a"
   [[ $(_ghsb_review_cmd $a 42) == *42* ]] || fail "review-$a"
 done
-[[ -n $(_ghsb_ai_flags grok) ]] || fail flags-grok
-[[ -n $(_ghsb_ai_flags claude) ]] || fail flags-claude
+[[ $(_ghsb_ai_flags grok) == "--always-approve" ]] || fail flags-grok
+[[ $(_ghsb_ai_flags claude) == "--permission-mode auto" ]] || fail flags-claude
 # OpenCode has no review slash command, and its default is to ask per permission
 [[ $(_ghsb_review_cmd opencode 42) != /* ]]  || fail opencode-slash
 [[ $(_ghsb_review_cmd claude 42 "all parallel") == "/pr-review-toolkit:review-pr 42 all parallel" ]] || fail claude-args
