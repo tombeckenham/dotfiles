@@ -2,6 +2,7 @@
 # Usage: ghi [-c] [-f] [-b <branch>] [-i <number>] [--no-agent] [--video] [--review-fix] "Issue title"
 #        ghi review <pr-number>   # same as ghipr
 #        ghi reviews              # same as ghiprs
+#        ghi issues               # same as ghis
 #        ghi branch …             # same as ghb (no GitHub issue)
 #
 # Creates a Herdr worktree grouped under the repo, focuses that space, and
@@ -18,6 +19,11 @@ ghi() {
       ghiprs "$@"
       return $?
       ;;
+    issues)
+      shift
+      ghis "$@"
+      return $?
+      ;;
     branch)
       shift
       ghb "$@"
@@ -26,7 +32,7 @@ ghi() {
   esac
 
   local base_branch="" issue_number="" branch_name="" target_fork=false
-  local no_agent=false want_video=false want_review=false
+  local no_agent=false no_focus=false want_video=false want_review=false
 
   while [[ "$1" == -* ]]; do
     case "$1" in
@@ -48,6 +54,10 @@ ghi() {
         ;;
       --no-agent)
         no_agent=true
+        shift
+        ;;
+      --no-focus)
+        no_focus=true
         shift
         ;;
       --video)
@@ -135,8 +145,10 @@ ghi() {
     echo "Fill the issue, then: ghi -i ${issue_number}"
   fi
   if $skip_agent; then
-    _ghsb_focus_worktree_if_other "$(_ghsb_issue_space_label "$session_id")" \
-      || cd "$worktree_path" || return 1
+    if ! $no_focus; then
+      _ghsb_focus_worktree_if_other "$(_ghsb_issue_space_label "$session_id")" \
+        || cd "$worktree_path" || return 1
+    fi
     _ghsb_open_reviewr "${GHSB_CHECKOUT[herdr_pane]:-}" "$worktree_path" \
       "${GHSB_CHECKOUT[herdr_workspace]:-}"
     $no_agent && echo "No agent (--no-agent)."
@@ -145,7 +157,9 @@ ghi() {
 
   local ai_prompt
   ai_prompt=$(_ghsb_implement_prompt "$issue_number" "$issue_repo" "$branch_name" "$session_id" "$ai_tool" "$want_video" "$want_review")
-  _ghsb_launch_in_current_space "ghi-${issue_number}" "$worktree_path" "$ai_tool" "$ai_prompt" "$session_id"
+  local -a launch_flags=()
+  $no_focus && launch_flags+=(--no-focus)
+  _ghsb_launch_in_current_space "ghi-${issue_number}" "$worktree_path" "$ai_tool" "$ai_prompt" "$session_id" "${launch_flags[@]}"
   echo "When done: push + PR. Optional: ghsb finish [--video] [--review-fix] $session_id"
 }
 
@@ -160,6 +174,7 @@ rename or cd this space.
   ghi [-c] [-f] [-b <branch>] [-i <N>] [--no-agent] [--video] [--review-fix] "Issue title"
   ghi review <pr-number>     # same as ghipr
   ghi reviews                # same as ghiprs
+  ghi issues                 # same as ghis
   ghi branch […]             # same as ghb (no GitHub issue)
 
 Flags:
@@ -168,6 +183,8 @@ Flags:
   -i, --issue N     Develop existing issue
   -f, --fork        Issues on the fork (not upstream)
   --no-agent        Only create issue/branch/worktree (no agent)
+  --no-focus        Do not switch this pane to the issue worktree
+                    (used by ghis so several issues can start at once)
   --video           After PR, record a Playwright walkthrough (ghsb finish --video)
   --review-fix      After PR, self-review and fix in this same agent
 

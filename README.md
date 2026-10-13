@@ -134,6 +134,18 @@ Skip rule: a ghsb session for that PR has a `herdr_workspace` that is still in `
 
 Source: `functions/ghiprs.zsh`.
 
+### `ghis` — start every assigned issue that has no PR
+
+From the repo root Herdr space. For each open issue assigned to you that GitHub does not link to a pull request, and whose Herdr workspace is not open, runs `ghi --no-focus -i N`. This pane stays on the repo root. Issues with an empty body are listed and skipped.
+
+```sh
+ghis              # start issue agents
+ghis --dry-run    # print start/skip only
+ghi issues        # same
+```
+
+Source: `functions/ghis.zsh`. Check: `scripts/test_ghis.zsh`.
+
 ### `ghsbpr` / `ghsb review` — PR review in Herdr
 
 Architecture A sibling of `ghwtpr`: checkout a PR, rank files for manual review, launch pr-review in **Herdr**, print links.
@@ -234,6 +246,18 @@ ghreap [-n|--dry-run] [-y|--yes]
 Never touches the current pane, an agent that is still working, or a branch with no PR yet. Prints the plan and asks before doing anything; `-n` just lists.
 
 Source: `functions/ghreap.zsh`. Check: `scripts/test_ghreap.zsh`.
+
+### `ghscan` — scan an untrusted GitHub repo
+
+```sh
+ghscan [--agent claude|opencode] [--allow-host HOST] <owner/repo|url> [<pr>]
+```
+
+Clones into `~/sandboxes/ghscan/` with `--no-checkout`, so the repo's hooks and symlinks never land on disk. The scan reads Git objects only. A symlink, submodule, opaque binary, `curl | sh`, encoded PowerShell, reverse shell, `pull_request_target`, or an install script that touches the network blocks the command (exit 2) before any sandbox exists. A `.bat`, `.cmd`, or `.ps1` file is blocked only when its contents download or execute a remote command. A local `npm` or `pip` install, or a URL printed in an echo, is a note.
+
+`--agent` starts `claude` or `opencode` inside a new `sbx` sandbox of that clone (`--skills off`). It refuses to start unless `sbx policy check network https://example.com` is denied, which is what `sbx policy init deny-all` sets up. The model host is allowed only for that sandbox. OpenCode needs `--allow-host`.
+
+Source: `functions/ghscan.zsh`. Check: `scripts/test_ghscan.zsh`.
 
 ### `ghwtb` — branch + worktree (no issue)
 
@@ -371,6 +395,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
     ├── ghb.zsh
     ├── ghipr.zsh
     ├── ghiprs.zsh
+    ├── ghis.zsh
     ├── _ghsb_common.zsh
     ├── ghwt.zsh
     ├── ghwtv.zsh
@@ -402,7 +427,7 @@ Known agents: `grok`, `claude`, `opencode`. `GHSB_AGENTS="claude"` overrides the
 
 OpenCode differs from the other two in `functions/_ghsb_common.zsh`: it starts with no extra flags, so the TUI asks before each permission, and `_ghsb_review_cmd` hands it the review task in plain English. Grok starts with `--always-approve`. Claude gets `--permission-mode auto`. Both still get their review slash commands.
 
-This repo is a Grok / Claude Code marketplace. The `ghsb` plugin exposes `/ghi`, `/ghb`, `/ghipr`, `/ghiprs`, and `/ghwtb` so an agent can call those functions (they live in `~/.zsh_functions` via `bootstrap.sh`; a non-interactive shell will not have them unless it uses the plugin runner).
+This repo is a Grok / Claude Code marketplace. The `ghsb` plugin exposes `/ghi`, `/ghb`, `/ghipr`, `/ghiprs`, `/ghis`, and `/ghwtb` so an agent can call those functions (they live in `~/.zsh_functions` via `bootstrap.sh`; a non-interactive shell will not have them unless it uses the plugin runner).
 
 ```sh
 # Grok
@@ -420,7 +445,7 @@ Local checkout instead of GitHub:
 grok plugin marketplace add ~/code/dotfiles
 ```
 
-`/ghiprs` is the fan-out: every open PR assigned to you whose Herdr workspace is closed gets a worktree (reopened or created) and a review agent, without leaving the current pane.
+`/ghiprs` is the fan-out: every open PR assigned to you whose Herdr workspace is closed gets a worktree (reopened or created) and a review agent, without leaving the current pane. `/ghis` is the issue fan-out: every open issue assigned to you that has no linked pull request and a non-empty body gets an implement agent, also without leaving the pane.
 
 ## Caveats / forking notes
 

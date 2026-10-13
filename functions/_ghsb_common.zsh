@@ -879,9 +879,14 @@ _ghsb_checkout_issue() {
     [[ ${#existing_branches[@]} -eq 1 && -z "${existing_branches[1]}" ]] && existing_branches=()
 
     if [[ ${#existing_branches[@]} -eq 1 ]]; then
-      printf "Found existing branch: %s\nUse it? [Y/n] " "${existing_branches[1]}"
-      local reply
-      read -r reply
+      local reply=""
+      if [[ -n "${GHSB_YES:-}" ]]; then
+        reply="Y"
+        echo "Using existing branch: ${existing_branches[1]}"
+      else
+        printf "Found existing branch: %s\nUse it? [Y/n] " "${existing_branches[1]}"
+        read -r reply
+      fi
       if [[ -z "$reply" || "$reply" == [Yy]* ]]; then
         branch_name="${existing_branches[1]}"
         git fetch origin "$branch_name" 2>/dev/null
@@ -893,6 +898,10 @@ _ghsb_checkout_issue() {
         echo "  [$i] $b"
         i=$((i+1))
       done
+      if [[ -n "${GHSB_YES:-}" ]]; then
+        echo "ghis will not pick among ${#existing_branches[@]} branches. Run: ghi -i ${issue_number}" >&2
+        return 1
+      fi
       printf "Select [1-%d, or n for new]: " "${#existing_branches[@]}"
       local reply
       read -r reply
@@ -1647,6 +1656,79 @@ _ghsb_pr_session_exists() {
   local files
   files=$(_ghsb_pr_session_files "$1") || return 1
   [[ -n "$files" ]]
+}
+
+# Session files in this repo for issue <n> that do not already record a PR.
+_ghsb_issue_session_files() {
+  local issue="$1" repo_root repo_name f canonical
+  [[ "$issue" =~ ^[0-9]+$ ]] || return 1
+  repo_root=$(_ghsb_repo_root) || return 1
+  repo_name=$(basename "$repo_root")
+  _ghsb_init_dirs
+  canonical="$(_ghsb_session_path "${repo_name}-${issue}")"
+  if [[ -f "$canonical" ]] && jq -e '.pr == null or .pr == ""' "$canonical" >/dev/null 2>&1; then
+    printf '%s\n' "$canonical"
+  fi
+  for f in "$GHSB_SESSIONS_DIR"/*.json(N); do
+    [[ "$f" == "$canonical" ]] && continue
+    jq -e --arg n "$issue" --arg prefix "${repo_name}-" \
+      '((.issue | tostring) == $n) and ((.id // "") | startswith($prefix)) and (.pr == null or .pr == "")' \
+      "$f" >/dev/null 2>&1 && printf '%s\n' "$f"
+  done
+  return 0
+}
+
+# What ghis should do for one assigned issue that has no pull request.
+# Args: issue, live workspace ids (one per line),
+#       open worktrees as branch<TAB>path<TAB>workspace_id (one per line).
+# Prints skip, reopen, or new.
+_ghsb_issue_start_action() {
+  local issue="$1" live_ids="$2" open_wts="$3"
+  local obr open_path ow files f ws wt repo_root repo_name line git_path=""
+  local have_dir=false
+  local prefix="branch refs/heads/${issue}-"
+
+  if [[ -n "$open_wts" ]]; then
+    while IFS=$'\t' read -r obr open_path ow; do
+      [[ "$obr" == ${issue}-* ]] || continue
+      if _ghsb_id_listed "$ow" "$live_ids"; then
+        echo skip
+        return 0
+      fi
+      [[ -n "$open_path" && -d "$open_path" ]] && have_dir=true
+    done <<< "$open_wts"
+  fi
+
+  files=$(_ghsb_issue_session_files "$issue") || files=""
+  if [[ -n "$files" ]]; then
+    while IFS= read -r f; do
+      [[ -f "$f" ]] || continue
+      ws=$(jq -r '.herdr_workspace // empty' "$f")
+      if _ghsb_id_listed "$ws" "$live_ids"; then
+        echo skip
+        return 0
+      fi
+      wt=$(jq -r '.worktree // empty' "$f")
+      [[ -n "$wt" && -d "$wt" ]] && have_dir=true
+    done <<< "$files"
+  fi
+
+  repo_root=$(_ghsb_repo_root) || { echo new; return 0; }
+  repo_name=$(basename "$repo_root")
+  [[ -d "$HOME/.claude/worktrees/${repo_name}-${issue}" ]] && have_dir=true
+  while IFS= read -r line; do
+    if [[ "$line" == worktree\ * ]]; then
+      git_path="${line#worktree }"
+    elif [[ "$line" == "$prefix"* && -n "$git_path" && -d "$git_path" ]]; then
+      have_dir=true
+    fi
+  done < <(git -C "$repo_root" worktree list --porcelain 2>/dev/null)
+
+  if $have_dir; then
+    echo reopen
+  else
+    echo new
+  fi
 }
 
 # True if $1 is a non-empty exact line of $2.
