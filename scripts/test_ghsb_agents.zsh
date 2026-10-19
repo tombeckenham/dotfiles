@@ -39,5 +39,9 @@ done
 [[ $(_ghsb_review_cmd opencode 42) != /* ]]  || fail opencode-slash
 [[ $(_ghsb_review_cmd claude 42 "all parallel") == "/pr-review-toolkit:review-pr 42 all parallel" ]] || fail claude-args
 [[ -z $(_ghsb_ai_flags opencode) ]] || fail opencode-flags
+[[ $(_ghsb_pr_summarise_cmd grok 42) == "After the review and the ponytail pass have both finished, run /pr-summarise 42 and print that table last." ]] || fail summarise-grok
+[[ $(_ghsb_pr_summarise_cmd claude 42) == *"/pr-summarise 42"* ]] || fail summarise-claude
+[[ $(_ghsb_pr_summarise_cmd opencode 42) != /* ]] || fail summarise-opencode
+[[ $(_ghsb_pr_summarise_cmd opencode 42) == *"pull request 42"* ]] || fail summarise-opencode-pr
 
 echo OK

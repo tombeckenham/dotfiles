@@ -117,16 +117,17 @@ What it does:
 2. Checks out the PR into a Herdr worktree at `~/.herdr/worktrees/{repo}/{branch-slug}` (same as `ghsbpr` / `ghwtpr`), including fork PRs via `gh pr checkout`.
 3. If the PR is behind its base or GitHub reports conflicts, merges (then rebases if the merge conflicts) the base branch into the worktree for review. Local only — does not push. Real conflicts abort and the review runs against the PR as authored.
 4. Ranks changed files, writes a review session, focuses the PR worktree space (repo root stays as-is), and opens herdr-reviewr in a right split.
-5. Starts grok/claude/opencode with `/review-pr` (or `/pr-review-toolkit:review-pr`) plus a parallel `/ponytail-review` in the worktree pane once the shell is idle.
+5. Starts grok/claude/opencode with `/review-pr` (or `/pr-review-toolkit:review-pr`) plus a parallel `/ponytail-review` in the worktree pane once the shell is idle. After both finish, the agent runs `/pr-summarise <pr>` and prints that table last.
 
 Source: `functions/ghipr.zsh`.
 
 ### `ghiprs` — review every assigned PR whose workspace is closed
 
-From the repo root Herdr space. For each open PR assigned to you whose Herdr workspace is not open, runs `ghipr --no-focus` (worktree + herdr-reviewr + review agent). This pane stays on the repo root.
+From the repo root Herdr space. For each open PR assigned to you whose Herdr workspace is not open, runs `ghipr --no-focus` (worktree + herdr-reviewr + review agent). Starts the lowest PR numbers first, five at a time. This pane stays on the repo root.
 
 ```sh
-ghiprs            # start reviews
+ghiprs            # start the 5 oldest
+ghiprs --max 10   # start a larger batch
 ghiprs --dry-run  # print start/skip only
 ```
 
@@ -136,15 +137,33 @@ Source: `functions/ghiprs.zsh`.
 
 ### `ghis` — start every assigned issue that has no PR
 
-From the repo root Herdr space. For each open issue assigned to you that GitHub does not link to a pull request, and whose Herdr workspace is not open, runs `ghi --no-focus -i N`. This pane stays on the repo root. Issues with an empty body are listed and skipped.
+From the repo root Herdr space. For each open issue assigned to you that GitHub does not link to a pull request, and whose Herdr workspace is not open, runs `ghi --no-focus -i N`. Starts the lowest issue numbers first, five at a time. This pane stays on the repo root. Issues with an empty body are listed and skipped.
 
 ```sh
-ghis              # start issue agents
+ghis              # start the 5 oldest
+ghis --max 10     # start a larger batch
 ghis --dry-run    # print start/skip only
 ghi issues        # same
 ```
 
 Source: `functions/ghis.zsh`. Check: `scripts/test_ghis.zsh`.
+
+### `tri` / `tris` — Trello card + worktree from the repo root in Herdr
+
+Same Herdr checkout as `ghi` (card → branch → worktree → agent), with a Trello card instead of a GitHub issue. A pasted card URL is the branch name: `/c/SHORT/196-slug` becomes `SHORT-slug`. `tri` does not read the card. The agent in the worktree does.
+
+```sh
+tri config --list <list-ari> [--board <board-url>]
+# In Grok: /tri https://trello.com/c/4QHZ15LN/196-slug
+# In Grok: /tri 196
+tri branch "Add dark mode"   # same as ghb (no card)
+```
+
+`tris` starts cards assigned to you on the configured inbox list, lowest card number first, five at a time. It skips an open Herdr workspace and an empty description. There is no Trello version of `ghipr`; pull request review stays on GitHub.
+
+The agent does not start until the card description is non-empty. Sign in once in Grok: `/mcps`, select `trello`, press `i`.
+
+Source: `functions/tri.zsh`, `functions/tris.zsh`, `functions/_tri_common.zsh`. Check: `scripts/test_tri.zsh`.
 
 ### `ghsbpr` / `ghsb review` — PR review in Herdr
 
@@ -250,12 +269,12 @@ Source: `functions/ghreap.zsh`. Check: `scripts/test_ghreap.zsh`.
 ### `ghscan` — scan an untrusted GitHub repo
 
 ```sh
-ghscan [--agent claude|opencode] [--allow-host HOST] <owner/repo|url> [<pr>]
+ghscan [--agent claude|opencode] [--no-agent] [--allow-host HOST] <owner/repo|url> [<pr>]
 ```
 
-Clones into `~/sandboxes/ghscan/` with `--no-checkout`, so the repo's hooks and symlinks never land on disk. The scan reads Git objects only. A symlink, submodule, opaque binary, `curl | sh`, encoded PowerShell, reverse shell, `pull_request_target`, or an install script that touches the network blocks the command (exit 2) before any sandbox exists. A `.bat`, `.cmd`, or `.ps1` file is blocked only when its contents download or execute a remote command. A local `npm` or `pip` install, or a URL printed in an echo, is a note.
+Clones into `~/sandboxes/ghscan/` with `--no-checkout`, so the repo's hooks and symlinks never land on the host. The scan reads Git objects only. A symlink, submodule, opaque binary, `curl | sh`, encoded PowerShell, reverse shell, `pull_request_target`, or an install script that touches the network is a blocking finding. A `.bat`, `.cmd`, or `.ps1` file is blocking only when its contents download or execute a remote command. A local `npm` or `pip` install, or a URL printed in an echo, is a note.
 
-`--agent` starts `claude` or `opencode` inside a new `sbx` sandbox of that clone (`--skills off`). It refuses to start unless `sbx policy check network https://example.com` is denied, which is what `sbx policy init deny-all` sets up. The model host is allowed only for that sandbox. OpenCode needs `--allow-host`.
+By default those findings do not stop the command. `ghscan` checks the repo out inside a new `sbx` sandbox (`--skills off`) and starts `claude` to review them. Pass `--agent opencode` for OpenCode, or `--no-agent` for a scan only (exit 2 on a blocking finding, no sandbox). The agent starts only when `sbx policy check network https://example.com` is denied, which is what `sbx policy init deny-all` sets up. The model host is allowed only for that sandbox. Claude defaults to `api.anthropic.com`. OpenCode needs `--allow-host`.
 
 Source: `functions/ghscan.zsh`. Check: `scripts/test_ghscan.zsh`.
 
@@ -396,6 +415,9 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
     ├── ghipr.zsh
     ├── ghiprs.zsh
     ├── ghis.zsh
+    ├── tri.zsh
+    ├── tris.zsh
+    ├── _tri_common.zsh
     ├── _ghsb_common.zsh
     ├── ghwt.zsh
     ├── ghwtv.zsh
@@ -427,7 +449,7 @@ Known agents: `grok`, `claude`, `opencode`. `GHSB_AGENTS="claude"` overrides the
 
 OpenCode differs from the other two in `functions/_ghsb_common.zsh`: it starts with no extra flags, so the TUI asks before each permission, and `_ghsb_review_cmd` hands it the review task in plain English. Grok starts with `--always-approve`. Claude gets `--permission-mode auto`. Both still get their review slash commands.
 
-This repo is a Grok / Claude Code marketplace. The `ghsb` plugin exposes `/ghi`, `/ghb`, `/ghipr`, `/ghiprs`, `/ghis`, and `/ghwtb` so an agent can call those functions (they live in `~/.zsh_functions` via `bootstrap.sh`; a non-interactive shell will not have them unless it uses the plugin runner).
+This repo is a Grok / Claude Code marketplace. The `ghsb` plugin exposes `/ghi`, `/ghb`, `/ghipr`, `/ghiprs`, `/ghis`, `/tri`, `/tris`, and `/ghwtb` so an agent can call those functions (they live in `~/.zsh_functions` via `bootstrap.sh`; a non-interactive shell will not have them unless it uses the plugin runner). `/tri` and `/tris` read Trello with the Trello MCP, then the shell creates the worktree.
 
 ```sh
 # Grok
@@ -445,7 +467,7 @@ Local checkout instead of GitHub:
 grok plugin marketplace add ~/code/dotfiles
 ```
 
-`/ghiprs` is the fan-out: every open PR assigned to you whose Herdr workspace is closed gets a worktree (reopened or created) and a review agent, without leaving the current pane. `/ghis` is the issue fan-out: every open issue assigned to you that has no linked pull request and a non-empty body gets an implement agent, also without leaving the pane.
+`/ghiprs` starts review agents for open PRs assigned to you whose Herdr workspace is closed, lowest number first, five at a time, without leaving the current pane. `/ghis` does the same for open issues assigned to you that have no linked pull request and a non-empty body.
 
 ## Caveats / forking notes
 

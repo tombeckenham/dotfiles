@@ -1,16 +1,25 @@
 # ghiprs — ghipr every open PR assigned to me whose Herdr workspace is closed
-# Usage: ghiprs [--dry-run]
+# Usage: ghiprs [--dry-run] [--max N]
 #
 # From the repo root Herdr space. Skips a PR when its review workspace is
 # still open. Otherwise reopens the worktree if it is on disk, or creates
 # one, and starts a review agent. Does not focus those spaces.
 ghiprs() {
-  local dry_run=false
+  local dry_run=false max=5
 
   while [[ "$1" == -* ]]; do
     case "$1" in
       --dry-run)
         dry_run=true
+        shift
+        ;;
+      --max)
+        shift
+        max="${1:-}"
+        [[ "$max" == <-> && "$max" -ge 1 ]] || {
+          echo "ghiprs: --max needs a positive number" >&2
+          return 1
+        }
         shift
         ;;
       -h|--help)
@@ -48,7 +57,8 @@ ghiprs() {
   fi
 
   local prs
-  prs=$(gh pr list --assignee @me --state open \
+  prs=$(gh pr list --assignee @me --state open --limit 100 \
+    --search "sort:created-asc" \
     --json number,title,url,isDraft,headRefName 2>&1) || {
     echo "gh pr list failed: $prs" >&2
     return 1
@@ -73,7 +83,18 @@ ghiprs() {
     fi
   done < <(printf '%s\n' "$prs" | jq -r '.[] | [.number, .title, .url, (.isDraft|tostring), .headRefName] | @tsv')
 
-  echo "Assigned open PRs: $count  start: ${#start[@]}  skip (workspace open): ${#skip[@]}"
+  local -a ordered=() later=()
+  if (( ${#start[@]} )); then
+    ordered=("${(@f)$(_ghsb_rows_by_number "${start[@]}")}")
+  fi
+  if (( ${#ordered[@]} > max )); then
+    later=("${ordered[@]:$max}")
+    start=("${ordered[@]:0:$max}")
+  else
+    start=("${ordered[@]}")
+  fi
+
+  echo "Assigned open PRs: $count  start: ${#start[@]}  later: ${#later[@]}  skip (workspace open): ${#skip[@]}"
   local row rest
   if (( ${#skip[@]} )); then
     echo "Skip:"
@@ -102,6 +123,15 @@ ghiprs() {
     esac
     echo "  #$n  $title  ($note)"
   done
+  if (( ${#later[@]} )); then
+    echo "Later:"
+    for row in "${later[@]}"; do
+      n=${row%%	*}
+      rest=${row#*	}
+      title=${rest%%	*}
+      echo "  #$n  $title"
+    done
+  fi
 
   if $dry_run; then
     echo "Dry run; not starting agents."
@@ -127,17 +157,17 @@ ghiprs() {
 
 _ghiprs_help() {
   cat <<'EOF'
-ghiprs — review every assigned open PR whose Herdr workspace is closed
+ghiprs — review assigned open PRs whose Herdr workspace is closed
 
-Run from the repo root Herdr space. For each open PR assigned to you
-(gh pr list --assignee @me), skip it when its review workspace is still
-open. Otherwise run ghipr --no-focus: reopen the worktree if it is on
-disk, or create one, then start reviewr and the review agent. Does not
-steal this pane's focus, so several reviews can start from one command.
+Run from the repo root Herdr space. Lists open PRs assigned to you,
+skips one whose review workspace is still open, and starts the rest
+lowest number first. The default batch is 5. Run it again for the next
+batch. Each start is ghipr --no-focus. Does not steal this pane's focus.
 
-  ghiprs [--dry-run]
+  ghiprs [--dry-run] [--max N]
 
 Flags:
   --dry-run    Print start/skip lists only
+  --max N      Start at most N reviews (default 5)
 EOF
 }

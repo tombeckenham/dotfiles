@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# Load ~/.zsh_functions then exec the remaining argv (ghi, ghipr, ghwtb, ghiprs, …).
+# Load ~/.zsh_functions then exec the remaining argv (ghi, tri, ghipr, ghwtb, ghiprs, …).
 # Agents should call this instead of a bare `ghi` — bash and non-interactive zsh
 # do not source those functions.
 if [[ $# -eq 0 ]]; then

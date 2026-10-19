@@ -120,6 +120,7 @@ ghipr() {
 
   local review_prompt
   review_prompt=$(_ghsb_pr_review_prompt "$ai_tool")
+  review_prompt+=$'\n\n'"$(_ghsb_pr_summarise_cmd "$ai_tool" "$pr_number")"
   local -a launch_flags=(--review)
   $no_focus && launch_flags+=(--no-focus)
   _ghsb_launch_in_current_space "ghi-review-${pr_number}" "$worktree_path" "$ai_tool" "$review_prompt" "$session_id" "${launch_flags[@]}"
@@ -143,7 +144,8 @@ Flags:
                     (used by ghiprs so several reviews can start at once)
 
 Same checkout as ghsbpr (PR worktree, update from base if behind/conflicting,
-ranked files, review + ponytail-review prompt).
+ranked files, review + ponytail-review prompt). After both finish, the agent
+runs /pr-summarise and prints that table last.
 The review agent starts in this space unless --no-focus.
 EOF
 }

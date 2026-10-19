@@ -68,4 +68,21 @@ write_session "${name}-note" 10 wLIVE ""
 [[ $(act 10 feat/ten wLIVE "") == skip ]] || fail prefixed-session
 _ghsb_pr_session_exists 10 || fail exists-10
 
+rows=(
+  $'12\tlater'
+  $'3\tthird'
+  $'7\tfifth'
+  $'1\tfirst'
+  $'9\tafter'
+  $'4\tfourth'
+)
+ordered=("${(@f)$(_ghsb_rows_by_number "${rows[@]}")}")
+[[ ${ordered[1]%%	*} == 1 ]] || fail sort-first
+[[ ${ordered[6]%%	*} == 12 ]] || fail sort-last
+capped=("${ordered[@]:0:5}")
+rest=("${ordered[@]:5}")
+[[ ${#capped[@]} == 5 ]] || fail cap-count
+[[ ${capped[1]%%	*} == 1 && ${capped[5]%%	*} == 9 ]] || fail cap-ends
+[[ ${#rest[@]} == 1 && ${rest[1]%%	*} == 12 ]] || fail cap-rest
+
 echo OK

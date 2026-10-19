@@ -1,6 +1,6 @@
 ---
 name: ghiprs
-description: Review every open GitHub PR assigned to the user whose Herdr workspace is not already open. Reopens the worktree if it is on disk, otherwise creates one, and starts a separate review agent per PR without leaving this pane. Use when the user runs /ghiprs, or says "review all my PRs", "ghipr everything assigned to me", "start reviews for assigned PRs", "parallel PR review".
+description: Review open GitHub PRs assigned to the user whose Herdr workspace is not already open. Starts the lowest PR numbers first, five by default. Reopens the worktree if it is on disk, otherwise creates one, and starts a separate review agent per PR without leaving this pane. Use when the user runs /ghiprs, or says "review all my PRs", "ghipr everything assigned to me", "start reviews for assigned PRs", "parallel PR review".
 compatibility: Requires Herdr pane (HERDR_PANE_ID), gh, git, and ~/.zsh_functions from tombeckenham/dotfiles.
 ---
 
@@ -14,14 +14,14 @@ If `HERDR_PANE_ID` is unset, stop and tell the user to run this from a Herdr pan
 
 ```bash
 RUN="${CLAUDE_PLUGIN_ROOT:-$HOME/code/dotfiles/plugins/ghsb}/scripts/run"
-zsh "$RUN" ghiprs [--dry-run]
+zsh "$RUN" ghiprs [--dry-run] [--max N]
 ```
 
 1. Dry-run first when the user might want a preview, or when more than a handful of PRs would start: `ghiprs --dry-run`
 2. Show them the start/skip lists
 3. Run `ghiprs` (no flag) to start. Do not wrap it in a background shell — `ghipr --no-focus` already starts each agent without stealing this pane.
 
-Do not write your own `gh pr list` + loop of `ghipr`. `ghiprs` skips a PR only when its Herdr workspace is still open.
+Do not write your own `gh pr list` + loop of `ghipr`. `ghiprs` skips a PR only when its Herdr workspace is still open. It starts the lowest numbers first and stops after 5 unless `--max` says otherwise. Run it again for the next batch.
 
 ## What it does
 

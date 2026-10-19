@@ -75,5 +75,22 @@ scripts=$(_ghscan_audit "$repo" HEAD) && scripts_status=0 || scripts_status=$?
 [[ "$scripts" != *"BLOCK"*$'\t'"install.bat:"* ]] || fail scripts-install-blocked
 [[ "$scripts" != *"BLOCK"*$'\t'"binary payload: install.bat"* ]] || fail scripts-install-extension
 
+stop=$(_ghscan_after_audit "" 1 $'BLOCK\tsymlink: escape' /tmp/scan HEAD) && stop_status=0 || stop_status=$?
+[[ "$stop_status" -eq 2 ]] || fail after-scan-only
+[[ "$stop" == *"blocked. No sandbox"* ]] || fail after-scan-only-msg
+
+go=$(_ghscan_after_audit claude 1 $'BLOCK\tsymlink: escape' /tmp/scan HEAD) && go_status=0 || go_status=$?
+[[ "$go_status" -eq 0 ]] || fail after-agent-continues
+[[ "$go" == *"BLOCK"*$'\t'"symlink: escape"* ]] || fail after-agent-finding
+[[ "$go" == *"agent will review"* ]] || fail after-agent-msg
+
+clean_go=$(_ghscan_after_audit "" 0 "" /tmp/scan HEAD) && clean_go_status=0 || clean_go_status=$?
+[[ "$clean_go_status" -eq 0 ]] || fail after-clean
+[[ "$clean_go" == *"no findings"* ]] || fail after-clean-msg
+
+prompt=$(_ghscan_prompt $'BLOCK\tcurl | sh')
+[[ "$prompt" == *"Do not install dependencies"* ]] || fail prompt-rules
+[[ "$prompt" == *"BLOCK"*$'\t'"curl | sh"* ]] || fail prompt-findings
+
 rm -rf "$root"
 echo OK

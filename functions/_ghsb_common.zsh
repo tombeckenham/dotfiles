@@ -79,6 +79,16 @@ _ghsb_ponytail_cmd() {
   esac
 }
 
+# Decision table after the review has finished. Not parallel with the review.
+# Usage: _ghsb_pr_summarise_cmd <ai_tool> <pr>
+_ghsb_pr_summarise_cmd() {
+  local ai_tool="$1" pr="$2"
+  case "$ai_tool" in
+    opencode) echo "After the review and the over-engineering pass have both finished, summarise pull request ${pr} as one decision table and print that table last. Cover what it solves, whether that matters, added complexity, fallbacks that should be errors, public type or API changes, users helped and hurt, standards compliance, and an Approve, Fix, or Reject verdict." ;;
+    *) echo "After the review and the ponytail pass have both finished, run /pr-summarise ${pr} and print that table last." ;;
+  esac
+}
+
 _ghsb_session_path() {
   echo "$GHSB_SESSIONS_DIR/${1}.json"
 }
@@ -1729,6 +1739,12 @@ _ghsb_issue_start_action() {
   else
     echo new
   fi
+}
+
+# Print TSV rows sorted by the numeric first field, lowest first.
+_ghsb_rows_by_number() {
+  (( $# == 0 )) && return 0
+  printf '%s\n' "$@" | sort -t $'\t' -k1,1n
 }
 
 # True if $1 is a non-empty exact line of $2.
