@@ -6,6 +6,9 @@ kitty_graphics = true
 [ui]
 agent_panel_sort = "spaces"
 
+[keys]
+switch_tab = ["prefix+1..9", "cmd+1..9"]
+
 [[keys.command]]
 key = "cmd+r"
 type = "plugin_action"

@@ -38,17 +38,18 @@ eval "$(fnm env --use-on-cd)"
 # pnpm
 export PNPM_HOME="$HOME/Library/pnpm"
 
-# Lazy-load pyenv (only loads when you first use python)
+# Lazy-load pyenv (only loads when you first use python).
+# Init must not call `pyenv` with no args: that prints the help text.
 export PYENV_ROOT="$HOME/.pyenv"
-pyenv() {
-  unfunction pyenv python python3 pip pip3
+_pyenv_lazy_init() {
+  unfunction _pyenv_lazy_init pyenv python python3 pip pip3
   eval "$(command pyenv init -)"
-  pyenv "$@"
 }
-python() { pyenv; python "$@" }
-python3() { pyenv; python3 "$@" }
-pip() { pyenv; pip "$@" }
-pip3() { pyenv; pip3 "$@" }
+pyenv() { _pyenv_lazy_init; pyenv "$@" }
+python() { _pyenv_lazy_init; python "$@" }
+python3() { _pyenv_lazy_init; python3 "$@" }
+pip() { _pyenv_lazy_init; pip "$@" }
+pip3() { _pyenv_lazy_init; pip3 "$@" }
 
 # Secrets from the Doppler "dotfiles" project. Reads Doppler's encrypted local
 # cache (~60ms, a live fetch is ~1s) and refreshes it in the background for the next shell.
