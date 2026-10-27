@@ -1,21 +1,5 @@
-tap "dopplerhq/cli"
-
-# CLI tools
-brew "starship"
-brew "fnm"
-brew "pnpm"
-brew "pyenv"
-brew "gh"
-brew "git-lfs"
-brew "jq"
+# These three have no official macOS install script or signed disk image.
+# gpg-agent.conf points at the Homebrew pinentry-mac binary.
 brew "gnupg"
-brew "lefthook"
-brew "tmux"
-brew "zoxide"
 brew "pinentry-mac"
-cask "dopplerhq/cli/doppler"
-
-# GUI apps
-cask "ghostty"
-cask "cursor"
-cask "orbstack"
+brew "tmux"

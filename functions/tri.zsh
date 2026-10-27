@@ -265,9 +265,16 @@ Read it with the Trello MCP tool trelloReadCard, action get, cardIdOrUrl set to 
 Do not pass the URL to a write tool. Use the card id (ARI) from that read.
 If the description is empty, ask what to accomplish before coding, then update the card with trelloWriteCard action update.
 
+Before coding, move the card to the list named In Progress.
+trelloReadList action list_by_board, boardId the card's board ARI.
+Match the list name case-insensitively. Then trelloWriteCard action move, cardId the card ARI, listId that list's ARI. Same board, so omit boardId.
+If that list is not on the board, say so and keep going. Do not create a list. Do not use mark_done.
+
 Work in this worktree. Commit on branch ${branch_name} and push to origin regularly.
 
-${wrap}"
+${wrap}
+
+When the PR is merged, move the card to the list named Done the same way. Opening the PR leaves the card in In Progress. Do not merge unless I ask."
 }
 
 _tri_config() {

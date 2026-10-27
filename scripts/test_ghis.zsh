@@ -21,6 +21,12 @@ got=$(_ghis_select "$issues")
 [[ "$got" == *2$'\t'"ready"$'\t'*"yes"* ]] || fail kept-ready
 [[ "$got" == *3$'\t'"empty"$'\t'*"no"* ]] || fail empty-flag
 
+args=$(_ghis_list_args false)
+[[ "$args" == *"--assignee"$'\n'"@me"* ]] || fail assignee
+args=$(_ghis_list_args true)
+[[ "$args" != *--assignee* ]] || fail all-drops-assignee
+[[ "$args" == *"-linked:pr sort:created-asc"* ]] || fail all-keeps-search
+
 repo=$(mktemp -d)
 name=$(basename "$repo")
 git -C "$repo" init -q

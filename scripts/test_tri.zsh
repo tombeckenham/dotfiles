@@ -125,4 +125,10 @@ git_wt2="$HERDR_WORKTREES_DIR/$name/Qw3rt123-feat"
 git worktree add -q "$git_wt2" Qw3rt123-feat
 [[ $(act Qw3rt123 "" "") == reopen ]] || fail git-wt
 
+prompt=$(_tri_implement_prompt SHORT Name https://trello.com/c/SHORT/1-name branch sess grok false false)
+[[ "$prompt" == *'list named In Progress'* ]] || fail move-progress
+[[ "$prompt" == *'list named Done'* ]] || fail move-done
+[[ "$prompt" == *'Opening the PR leaves the card in In Progress'* ]] || fail open-stays
+[[ "$prompt" == *'Do not merge unless I ask'* ]] || fail no-auto-merge
+
 echo OK

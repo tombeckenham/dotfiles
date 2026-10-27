@@ -2,10 +2,12 @@
 path=(
   $HOME/.opencode/bin
   $HOME/.local/bin
+  "$HOME/Library/Application Support/fnm"
+  $HOME/.pyenv/bin
+  $HOME/Library/pnpm
   $HOME/.bun/bin
   /opt/homebrew/bin
 
-  $HOME/Library/pnpm
   $HOME/.kimi-code/bin
   $path
 )
@@ -32,24 +34,19 @@ eval "$(zoxide init zsh)"
 # bun
 export BUN_INSTALL="$HOME/.bun"
 
-# fnm (fast node manager - replaces nvm)
+# fnm (fast node manager - replaces nvm). The install script drops the
+# binary in Application Support; versions stay in ~/.local/share/fnm.
+export FNM_DIR="$HOME/.local/share/fnm"
 eval "$(fnm env --use-on-cd)"
 
 # pnpm
 export PNPM_HOME="$HOME/Library/pnpm"
 
-# Lazy-load pyenv (only loads when you first use python).
-# Init must not call `pyenv` with no args: that prints the help text.
+# pyenv shims are real executables. Do not wrap python/python3: agents exec
+# the binary, and a shell function is not one.
 export PYENV_ROOT="$HOME/.pyenv"
-_pyenv_lazy_init() {
-  unfunction _pyenv_lazy_init pyenv python python3 pip pip3
-  eval "$(command pyenv init -)"
-}
-pyenv() { _pyenv_lazy_init; pyenv "$@" }
-python() { _pyenv_lazy_init; python "$@" }
-python3() { _pyenv_lazy_init; python3 "$@" }
-pip() { _pyenv_lazy_init; pip "$@" }
-pip3() { _pyenv_lazy_init; pip3 "$@" }
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(command pyenv init -)"
 
 # Secrets from the Doppler "dotfiles" project. Reads Doppler's encrypted local
 # cache (~60ms, a live fetch is ~1s) and refreshes it in the background for the next shell.

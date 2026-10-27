@@ -8,7 +8,7 @@ compatibility: Requires Herdr pane (HERDR_PANE_ID), the Trello MCP, gh, git, jq,
 
 Run `tri` from this Herdr pane. The card URL is the branch name. Do not read the card before starting the worktree. Do not call `twg`. Do not invent a parallel git flow.
 
-The agent that `tri` starts reads the card. If the description is empty, that agent asks before coding.
+The agent that `tri` starts reads the card. If the description is empty, that agent asks before coding. Before coding it moves the card to the list named In Progress. It moves the card to Done only after the PR is merged. Opening the PR does not move it, and the agent does not merge unless asked.
 
 ## Runner
 

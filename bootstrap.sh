@@ -7,7 +7,56 @@ echo "==> Bootstrapping from $DOTFILES_DIR"
 
 # CLI installers below drop binaries here; .zshrc isn't loaded in this script,
 # so without this every re-run would reinstall them.
-export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.opencode/bin:$HOME/.grok/bin:/opt/homebrew/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/Library/Application Support/fnm:$HOME/Library/pnpm:$HOME/.bun/bin:$HOME/.opencode/bin:$HOME/.grok/bin:$HOME/.pyenv/bin:/opt/homebrew/bin:$PATH"
+mkdir -p "$HOME/.local/bin"
+
+# macOS CPU name used by GitHub release assets (arm64 or amd64).
+release_arch() {
+  case "$(uname -m)" in
+    arm64|aarch64) echo arm64 ;;
+    x86_64) echo amd64 ;;
+    *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+  esac
+}
+
+# Print the browser download URL of the first asset whose name matches.
+github_asset_url() {
+  local repo="$1" pattern="$2"
+  curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" \
+    | /usr/bin/python3 -c '
+import json, re, sys
+pat = re.compile(sys.argv[1])
+for asset in json.load(sys.stdin)["assets"]:
+    if pat.search(asset["name"]):
+        print(asset["browser_download_url"])
+        raise SystemExit(0)
+sys.exit("no release asset matched %s" % pat.pattern)
+' "$pattern"
+}
+
+unquarantine() {
+  xattr -dr com.apple.quarantine "$1" 2>/dev/null || true
+}
+
+# Copy App.app out of a remote disk image into /Applications.
+install_dmg_app() {
+  local url="$1" app="$2" tmp mount
+  [[ -d "/Applications/${app}.app" ]] && return 0
+  echo "==> Installing ${app}..."
+  tmp="$(mktemp -d)"
+  curl -fL --retry 3 --output "$tmp/app.dmg" "$url"
+  mount="$(hdiutil attach "$tmp/app.dmg" -nobrowse -readonly | /usr/bin/sed -n 's#.*\(/Volumes/.*\)#\1#p' | /usr/bin/tail -1)"
+  if [[ ! -d "${mount}/${app}.app" ]]; then
+    echo "ERROR: ${app}.app not found in ${mount}" >&2
+    [[ -n "$mount" ]] && hdiutil detach "$mount" >/dev/null || true
+    rm -rf "$tmp"
+    return 1
+  fi
+  cp -R "${mount}/${app}.app" /Applications/
+  hdiutil detach "$mount" >/dev/null
+  unquarantine "/Applications/${app}.app"
+  rm -rf "$tmp"
+}
 
 # 1. Xcode Command Line Tools
 if ! xcode-select -p &>/dev/null; then
@@ -17,16 +66,140 @@ if ! xcode-select -p &>/dev/null; then
   read -n 1 -s
 fi
 
-# 2. Homebrew
+# 2. Homebrew — only tools with no official macOS installer (see Brewfile)
 if ! command -v brew &>/dev/null; then
   echo "==> Installing Homebrew..."
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
-# 3. Install packages from Brewfile
 echo "==> Running brew bundle..."
 brew bundle --file="$DOTFILES_DIR/Brewfile"
+
+# 3. Official installers. Each one is the curl script or disk image from the
+#    project's own site. A Homebrew copy earlier on PATH does not count: the
+#    native location is what gets installed, and .zshrc searches it first.
+arch="$(release_arch)"
+
+if [[ ! -x "$HOME/.local/bin/starship" ]]; then
+  echo "==> Installing Starship..."
+  curl -fsSL https://starship.rs/install.sh | sh -s -- -y -b "$HOME/.local/bin"
+fi
+
+if [[ ! -x "$HOME/Library/Application Support/fnm/fnm" ]]; then
+  echo "==> Installing fnm..."
+  # The script's macOS default is Homebrew. --force-install takes the binary.
+  # --skip-shell: .zshrc already runs `fnm env`.
+  curl -fsSL https://fnm.vercel.app/install | bash -s -- --force-install --skip-shell
+fi
+
+if [[ ! -x "$HOME/Library/pnpm/pnpm" && ! -x "$HOME/Library/pnpm/bin/pnpm" ]]; then
+  echo "==> Installing pnpm..."
+  export PNPM_HOME="$HOME/Library/pnpm"
+  # `pnpm setup` appends to the rc of $SHELL. Point that at bash, then throw
+  # the edit away — .zshrc already exports PNPM_HOME and puts it on PATH.
+  bashrc_backup=""
+  if [[ -f "$HOME/.bashrc" ]]; then
+    bashrc_backup="$(mktemp)"
+    cp "$HOME/.bashrc" "$bashrc_backup"
+  fi
+  curl -fsSL https://get.pnpm.io/install.sh | env PNPM_HOME="$PNPM_HOME" SHELL=/bin/bash sh -
+  if [[ -n "$bashrc_backup" ]]; then
+    mv "$bashrc_backup" "$HOME/.bashrc"
+  else
+    rm -f "$HOME/.bashrc"
+  fi
+fi
+
+if [[ ! -x "$HOME/.pyenv/bin/pyenv" ]]; then
+  if [[ -d "$HOME/.pyenv" ]]; then
+    echo "==> pyenv: ~/.pyenv already exists, leaving it (Homebrew uses that directory for versions)."
+  else
+    echo "==> Installing pyenv..."
+    curl -fsSL https://pyenv.run | bash
+  fi
+fi
+
+if [[ ! -x "$HOME/.local/bin/gh" ]]; then
+  echo "==> Installing GitHub CLI..."
+  tmp="$(mktemp -d)"
+  curl -fL --retry 3 --output "$tmp/gh.zip" "$(github_asset_url cli/cli "^gh_.*_macOS_${arch}\\.zip$")"
+  unzip -q "$tmp/gh.zip" -d "$tmp"
+  gh_bin="$(/usr/bin/find "$tmp" -type f -path '*/bin/gh' -print -quit)"
+  install -m 755 "$gh_bin" "$HOME/.local/bin/gh"
+  unquarantine "$HOME/.local/bin/gh"
+  rm -rf "$tmp"
+fi
+
+if [[ ! -x "$HOME/.local/bin/git-lfs" ]]; then
+  echo "==> Installing Git LFS..."
+  tmp="$(mktemp -d)"
+  curl -fL --retry 3 --output "$tmp/lfs.zip" "$(github_asset_url git-lfs/git-lfs "^git-lfs-darwin-${arch}-.*\\.zip$")"
+  unzip -q "$tmp/lfs.zip" -d "$tmp"
+  install_sh="$(/usr/bin/find "$tmp" -name install.sh -print -quit)"
+  (cd "$(dirname "$install_sh")" && PREFIX="$HOME/.local" ./install.sh)
+  unquarantine "$HOME/.local/bin/git-lfs"
+  rm -rf "$tmp"
+fi
+
+if [[ ! -x "$HOME/.local/bin/jq" ]]; then
+  echo "==> Installing jq..."
+  curl -fL --retry 3 --output "$HOME/.local/bin/jq" \
+    "https://github.com/jqlang/jq/releases/latest/download/jq-macos-${arch}"
+  chmod 755 "$HOME/.local/bin/jq"
+  unquarantine "$HOME/.local/bin/jq"
+fi
+
+if [[ ! -x "$HOME/.local/bin/lefthook" ]]; then
+  echo "==> Installing lefthook..."
+  case "$arch" in
+    arm64) hook_arch="MacOS_arm64" ;;
+    amd64) hook_arch="MacOS_x86_64" ;;
+  esac
+  curl -fL --retry 3 --output "$HOME/.local/bin/lefthook" \
+    "$(github_asset_url evilmartians/lefthook "^lefthook_.*_${hook_arch}$")"
+  chmod 755 "$HOME/.local/bin/lefthook"
+  unquarantine "$HOME/.local/bin/lefthook"
+fi
+
+if [[ ! -x "$HOME/.local/bin/zoxide" ]]; then
+  echo "==> Installing zoxide..."
+  curl -fsSL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
+fi
+
+if [[ ! -x "$HOME/.local/bin/doppler" ]]; then
+  echo "==> Installing Doppler CLI..."
+  # Completions follow $HOME. A throwaway home keeps the installer off ~/.zshrc.
+  # GnuPG (from Homebrew) verifies the binary signature.
+  fake_home="$(mktemp -d)"
+  curl -fsSL --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/install.sh \
+    | env HOME="$fake_home" sh -s -- --install-path "$HOME/.local/bin"
+  rm -rf "$fake_home"
+  unquarantine "$HOME/.local/bin/doppler"
+fi
+
+if [[ ! -x "$HOME/.local/bin/herdr" ]]; then
+  echo "==> Installing Herdr..."
+  curl -fsSL https://herdr.dev/install.sh | sh
+fi
+
+if [[ ! -d /Applications/Ghostty.app ]]; then
+  ghostty_url="$(curl -fsSL https://release.files.ghostty.org/appcast.xml | /usr/bin/grep -oE 'https://release.files.ghostty.org/[0-9.]+/Ghostty\.dmg' | /usr/bin/tail -1)"
+  install_dmg_app "$ghostty_url" Ghostty
+fi
+
+if [[ ! -d /Applications/Cursor.app ]]; then
+  case "$(uname -m)" in
+    arm64) cursor_platform="darwin-arm64" ;;
+    x86_64) cursor_platform="darwin-x64" ;;
+  esac
+  cursor_url="$(curl -fsSL "https://cursor.com/api/download?platform=${cursor_platform}&releaseTrack=stable" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["downloadUrl"])')"
+  install_dmg_app "$cursor_url" Cursor
+fi
+
+if [[ ! -d /Applications/OrbStack.app ]]; then
+  install_dmg_app "https://orbstack.dev/download/stable/latest/${arch}" OrbStack
+fi
 
 # 4. Antidote (zsh plugin manager)
 if [[ ! -d ~/.antidote ]]; then

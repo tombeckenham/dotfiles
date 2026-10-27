@@ -1,15 +1,20 @@
 # ghis — start an agent for every open issue assigned to me that has no PR
-# Usage: ghis [--dry-run] [--max N]
+# Usage: ghis [--dry-run] [--max N] [--all]
 #
 # From the repo root Herdr space. Skips an issue when its workspace is still
 # open, or when the issue body is empty. Otherwise runs ghi --no-focus.
+# --all lists every open issue in the repo, not only ones assigned to you.
 ghis() {
-  local dry_run=false max=5
+  local dry_run=false max=5 all=false
 
   while [[ "$1" == -* ]]; do
     case "$1" in
       --dry-run)
         dry_run=true
+        shift
+        ;;
+      --all)
+        all=true
         shift
         ;;
       --max)
@@ -55,9 +60,9 @@ ghis() {
     ') || open_wts=""
   fi
 
-  issues=$(gh issue list --assignee @me --state open --limit 100 \
-    --search "-linked:pr sort:created-asc" \
-    --json number,title,url,body,closedByPullRequestsReferences 2>&1) || {
+  local -a list_args=()
+  list_args=("${(@f)$(_ghis_list_args "$all")}")
+  issues=$(gh issue list "${list_args[@]}" 2>&1) || {
     echo "gh issue list failed: $issues" >&2
     return 1
   }
@@ -68,8 +73,14 @@ ghis() {
     [[ -n "$row" ]] && rows+=("$row")
   done < <(_ghis_select "$issues")
 
+  local scope="Assigned issues" none="No open issues assigned to you without a pull request."
+  if $all; then
+    scope="Open issues"
+    none="No open issues without a pull request."
+  fi
+
   if (( ${#rows[@]} == 0 )); then
-    echo "No open issues assigned to you without a pull request."
+    echo "$none"
     return 0
   fi
 
@@ -105,7 +116,7 @@ ghis() {
     start=("${ordered[@]}")
   fi
 
-  echo "Assigned issues without a PR: ${#rows[@]}  start: ${#start[@]}  later: ${#later[@]}  skip (workspace open): ${#skip[@]}  skip (empty body): ${#empty[@]}"
+  echo "$scope without a PR: ${#rows[@]}  start: ${#start[@]}  later: ${#later[@]}  skip (workspace open): ${#skip[@]}  skip (empty body): ${#empty[@]}"
   local rest
   if (( ${#skip[@]} )); then
     echo "Skip (workspace open):"
@@ -172,6 +183,20 @@ ghis() {
   (( failed == 0 ))
 }
 
+# gh issue list arguments. "true" drops --assignee @me.
+_ghis_list_args() {
+  local -a args=(
+    --state open
+    --limit 100
+    --search "-linked:pr sort:created-asc"
+    --json number,title,url,body,closedByPullRequestsReferences
+  )
+  if [[ "$1" != true ]]; then
+    args=(--assignee @me "${args[@]}")
+  fi
+  printf '%s\n' "${args[@]}"
+}
+
 # Print number, title, url, and yes/no for issues that have no pull request.
 # Empty-body issues are included with "no" so the caller can skip them.
 _ghis_select() {
@@ -186,19 +211,21 @@ _ghis_select() {
 
 _ghis_help() {
   cat <<'EOF'
-ghis — start agents for assigned issues that have no pull request
+ghis — start agents for open issues that have no pull request
 
 Run from the repo root Herdr space. Lists open issues assigned to you
-that GitHub does not link to a pull request. Skips an issue whose Herdr
-workspace is still open, and skips an issue with an empty body. Starts
-the rest lowest number first. The default batch is 5. Each start is
-ghi --no-focus -i N. Does not steal this pane's focus.
+that GitHub does not link to a pull request. --all lists every open
+issue in the repo. Skips an issue whose Herdr workspace is still open,
+and skips an issue with an empty body. Starts the rest lowest number
+first. The default batch is 5. Each start is ghi --no-focus -i N.
+Does not steal this pane's focus.
 
-  ghis [--dry-run] [--max N]
-  ghi issues [--dry-run] [--max N]
+  ghis [--dry-run] [--max N] [--all]
+  ghi issues [--dry-run] [--max N] [--all]
 
 Flags:
   --dry-run    Print start/skip lists only
   --max N      Start at most N issues (default 5)
+  --all        Every open issue, not only ones assigned to you
 EOF
 }

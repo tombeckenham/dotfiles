@@ -8,7 +8,7 @@ macOS dev environment focused on a GitHub-issue → git-worktree → Claude Code
 
 ## Commands
 
-Custom shell functions live in `functions/`. `bootstrap.sh` symlinks the directory to `~/.zsh_functions/`, and `.zshrc` auto-sources every `*.zsh` file inside it.
+Custom shell functions live in `functions/`. `bootstrap.sh` symlinks the directory to `~/.zsh_functions/`, and `.zshrc` auto-sources every `*.zsh` file inside it. An open shell re-sources that directory before the next command when one of those files changes (`functions/_ghsb_reload.zsh`). A shell that was already open when that hook was added needs one `source ~/.zshrc`.
 
 ### `ghsb` — issue + Herdr session + finish review pipeline (Architecture A)
 
@@ -140,7 +140,8 @@ Source: `functions/ghiprs.zsh`.
 From the repo root Herdr space. For each open issue assigned to you that GitHub does not link to a pull request, and whose Herdr workspace is not open, runs `ghi --no-focus -i N`. Starts the lowest issue numbers first, five at a time. This pane stays on the repo root. Issues with an empty body are listed and skipped.
 
 ```sh
-ghis              # start the 5 oldest
+ghis              # start the 5 oldest assigned to you
+ghis --all        # every open issue, not only ones assigned to you
 ghis --max 10     # start a larger batch
 ghis --dry-run    # print start/skip only
 ghi issues        # same
@@ -150,7 +151,7 @@ Source: `functions/ghis.zsh`. Check: `scripts/test_ghis.zsh`.
 
 ### `tri` / `tris` — Trello card + worktree from the repo root in Herdr
 
-Same Herdr checkout as `ghi` (card → branch → worktree → agent), with a Trello card instead of a GitHub issue. A pasted card URL is the branch name: `/c/SHORT/196-slug` becomes `SHORT-slug`. `tri` does not read the card. The agent in the worktree does.
+Same Herdr checkout as `ghi` (card → branch → worktree → agent), with a Trello card instead of a GitHub issue. A pasted card URL is the branch name: `/c/SHORT/196-slug` becomes `SHORT-slug`. `tri` does not read the card. The agent in the worktree does. Before coding, that agent moves the card to the list named In Progress. It moves the card to Done only after the PR is merged.
 
 ```sh
 tri config --list <list-ari> [--board <board-url>]
@@ -368,22 +369,23 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 ## What `bootstrap.sh` does
 
 1. Installs Xcode Command Line Tools and Homebrew if either is missing.
-2. Runs `brew bundle` against `Brewfile` — installs starship, fnm, pnpm, pyenv, gh, jq, gnupg, lefthook, tmux, zoxide, pinentry-mac, doppler, plus the Ghostty, Cursor and OrbStack casks.
-3. Clones [Antidote](https://github.com/mattmc3/antidote) (zsh plugin manager) into `~/.antidote`.
-4. Symlinks `.zshrc`, `.zsh_plugins.txt`, `starship.toml`, `herdr/config.toml`, `gpg.conf`, `gpg-agent.conf` and `functions/` into `$HOME` (and `~/.config`, `~/.config/herdr`, `~/.gnupg`).
-5. Authenticates `gh` with the `user` and `write:gpg_key` scopes (refreshes the token if those scopes aren't already granted).
-6. Configures git globally: LFS filters, `commit.gpgsign=true`, `tag.gpgSign=true`, and `gh auth setup-git` for HTTPS token auth.
-7. If git identity isn't set, prompts for name/email (auto-detected from existing config and the GitHub API), offers to generate an Ed25519 GPG signing key, and registers the key with GitHub via `gh gpg-key add`.
-8. Installs the latest Node via `fnm`, Python 3.12 via `pyenv`, and Bun via the official installer.
-9. `bun install -g vercel wrangler`, then installs the Claude Code, OpenCode, and Grok Build CLIs.
-10. Installs the `persiyanov/herdr-reviewr` Herdr plugin (warns if [Herdr](https://herdr.dev) is missing), then the `ghsb` plugin for Claude Code and Grok from this repo's marketplace.
-11. Logs in to Doppler and caches the `dotfiles` project's secrets (e.g. `TYPESAFE_API_KEY`). `.zshrc` exports them from Doppler's encrypted local cache on shell start.
-12. `pmset` for always-on server mode (`sleep 0`, `displaysleep 5`, `autorestart 1`).
-13. `lefthook install` — wires up the pre-commit secret scanner from `lefthook.yml`.
+2. Runs `brew bundle` against `Brewfile`. Homebrew is only used where the project has no macOS installer: GnuPG, pinentry-mac, and tmux.
+3. Installs the rest from each project's own installer. Curl scripts: [Starship](https://starship.rs), [fnm](https://fnm.vercel.app/install) (`--force-install`, so it does not fall back to Homebrew), [pnpm](https://get.pnpm.io/install.sh), [pyenv](https://pyenv.run), [zoxide](https://github.com/ajeetdsouza/zoxide), [Doppler](https://cli.doppler.com/install.sh), [Herdr](https://herdr.dev/install.sh). GitHub release binaries: `gh`, Git LFS, jq, lefthook, into `~/.local/bin`. Disk images: Ghostty, Cursor, and OrbStack into `/Applications`.
+4. Clones [Antidote](https://github.com/mattmc3/antidote) (zsh plugin manager) into `~/.antidote`.
+5. Symlinks `.zshrc`, `.zsh_plugins.txt`, `starship.toml`, `herdr/config.toml`, `gpg.conf`, `gpg-agent.conf` and `functions/` into `$HOME` (and `~/.config`, `~/.config/herdr`, `~/.gnupg`).
+6. Authenticates `gh` with the `user` and `write:gpg_key` scopes (refreshes the token if those scopes aren't already granted).
+7. Configures git globally: LFS filters, `commit.gpgsign=true`, `tag.gpgSign=true`, and `gh auth setup-git` for HTTPS token auth.
+8. If git identity isn't set, prompts for name/email (auto-detected from existing config and the GitHub API), offers to generate an Ed25519 GPG signing key, and registers the key with GitHub via `gh gpg-key add`.
+9. Installs the latest Node via `fnm`, Python 3.12 via `pyenv`, and Bun via the official installer.
+10. `bun install -g vercel wrangler`, then installs the Claude Code, OpenCode, and Grok Build CLIs.
+11. Installs the `persiyanov/herdr-reviewr` Herdr plugin, then the `ghsb` plugin for Claude Code and Grok from this repo's marketplace.
+12. Logs in to Doppler and caches the `dotfiles` project's secrets (e.g. `TYPESAFE_API_KEY`). `.zshrc` exports them from Doppler's encrypted local cache on shell start.
+13. `pmset` for always-on server mode (`sleep 0`, `displaysleep 5`, `autorestart 1`).
+14. `lefthook install` — wires up the pre-commit secret scanner from `lefthook.yml`.
 
 ## Shell config
 
-- **`.zshrc`** — loads Antidote plugins, sets up the Starship prompt, initialises zoxide (`z`, `zi`), adds Bun / pnpm / fnm to `PATH`, lazy-loads pyenv on first `python`/`pip` use, and auto-sources every `*.zsh` file in `~/.zsh_functions/`.
+- **`.zshrc`** — loads Antidote plugins, sets up the Starship prompt, initialises zoxide (`z`, `zi`), adds Bun / pnpm / fnm to `PATH`, puts pyenv shims on `PATH` at startup, and auto-sources every `*.zsh` file in `~/.zsh_functions/`. Open shells re-source that directory before the next command when a function file changes.
 - **`.zsh_plugins.txt`** — `zsh-autosuggestions`, `zsh-syntax-highlighting`, `zsh-completions`, `zsh-history-substring-search`, plus the `git`, `node`, `npm` and `macos` ohmyzsh plugin paths.
 - **`starship.toml`** — fast prompt: directory (truncated to repo root), git branch and status, command duration if it took longer than 2s. Language modules are disabled to keep prompt rendering quick.
 - **`herdr/config.toml`** — Herdr config, symlinked to `~/.config/herdr/config.toml`. Turns off onboarding, enables kitty graphics, sorts the agent panel by spaces, and binds cmd+r to toggle reviewr.
@@ -395,7 +397,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 ```
 .
 ├── bootstrap.sh           # Installer (run once, safe to re-run)
-├── Brewfile               # Homebrew packages
+├── Brewfile               # Homebrew: gnupg, pinentry-mac, tmux
 ├── .zshrc                 # Shell config
 ├── .zsh_plugins.txt       # Antidote plugin list
 ├── starship.toml          # Prompt
@@ -467,11 +469,11 @@ Local checkout instead of GitHub:
 grok plugin marketplace add ~/code/dotfiles
 ```
 
-`/ghiprs` starts review agents for open PRs assigned to you whose Herdr workspace is closed, lowest number first, five at a time, without leaving the current pane. `/ghis` does the same for open issues assigned to you that have no linked pull request and a non-empty body.
+`/ghiprs` starts review agents for open PRs assigned to you whose Herdr workspace is closed, lowest number first, five at a time, without leaving the current pane. `/ghis` does the same for open issues assigned to you that have no linked pull request and a non-empty body. `/ghis --all` drops the assignee filter.
 
 ## Caveats / forking notes
 
-- macOS only — uses `xcode-select`, `pmset`, `osascript`, `pinentry-mac` and `/opt/homebrew` paths.
+- macOS only — uses `xcode-select`, `pmset`, `osascript`, and `pinentry-mac` at `/opt/homebrew/bin/pinentry-mac`. `/opt/homebrew/bin` stays on `PATH` for GnuPG, pinentry-mac, and tmux.
 - `bootstrap.sh` calls `sudo pmset` to keep the machine awake. Remove that block if you don't want always-on power management.
 - `ghwt`, `ghwtv`, `ghwtprv`, `ghwtb`, and `wt` assume Claude Code is installed and on `PATH` (`bootstrap.sh` installs it). New worktrees are Herdr worktrees under `~/.herdr/worktrees/{repo}/{branch-slug}` (legacy `~/.claude/worktrees/{repo}-{N}` checkouts are still opened). `ghwtv --tode` needs `tode` and `herdr` on `PATH`. `ghwtprv` needs `herdr` and the `persiyanov.reviewr` plugin (`herdr plugin install persiyanov/herdr-reviewr`).
-- If you fork this repo, prune `Brewfile` and skip the steps in `bootstrap.sh` you don't want (Vercel, Wrangler, OpenCode, Grok, GPG key generation, etc.).
+- If you fork this repo, prune `Brewfile` and skip the installer steps in `bootstrap.sh` you don't want (Vercel, Wrangler, OpenCode, Grok, GPG key generation, etc.).
