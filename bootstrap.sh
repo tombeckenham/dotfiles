@@ -402,6 +402,9 @@ if command -v herdr &>/dev/null; then
     echo "==> Installing herdr-reviewr..."
     herdr plugin install -y persiyanov/herdr-reviewr
   fi
+  mkdir -p "$HOME/.config/herdr/plugins/config/persiyanov.reviewr"
+  symlink "$DOTFILES_DIR/herdr/persiyanov.reviewr/config.toml" \
+    "$HOME/.config/herdr/plugins/config/persiyanov.reviewr/config.toml"
 else
   echo "    WARNING: herdr not found. ghi/ghipr/ghsb need it: https://herdr.dev"
 fi

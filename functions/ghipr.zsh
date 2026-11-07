@@ -76,6 +76,7 @@ ghipr() {
     --arg pane "${GHSB_CHECKOUT[herdr_pane]:-${HERDR_PANE_ID}}" \
     --arg workspace "${GHSB_CHECKOUT[herdr_workspace]:-${HERDR_WORKSPACE_ID}}" \
     --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg forge "$(_ghsb_forge)" \
     '{
       id: $id,
       issue: null,
@@ -99,7 +100,8 @@ ghipr() {
       artifacts: $art,
       kind: "pr-review",
       created_at: $created,
-      finished_at: null
+      finished_at: null,
+      forge: $forge
     }')
   _ghsb_write_session "$session_id" "$session_json"
 

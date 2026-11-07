@@ -57,10 +57,10 @@ ghiprs() {
   fi
 
   local prs
-  prs=$(gh pr list --assignee @me --state open --limit 100 \
+  prs=$("$(_ghsb_forge)" pr list --assignee @me --state open --limit 100 \
     --search "sort:created-asc" \
     --json number,title,url,isDraft,headRefName 2>&1) || {
-    echo "gh pr list failed: $prs" >&2
+    echo "$(_ghsb_forge) pr list failed: $prs" >&2
     return 1
   }
 
@@ -142,9 +142,9 @@ ghiprs() {
   for row in "${start[@]}"; do
     n=${row%%	*}
     echo ""
-    echo "=== ghipr --no-focus $n ==="
+    echo "=== $(_ghsb_user_cmd ghipr) --no-focus $n ==="
     if ! ghipr --no-focus "$n"; then
-      echo "ghipr $n failed" >&2
+      echo "$(_ghsb_user_cmd ghipr) $n failed" >&2
       failed=$((failed + 1))
     fi
   done

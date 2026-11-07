@@ -1,0 +1,9 @@
+theme = "tokyo-night"
+default_scope = "branch"
+navigator_position = "right"
+auto_open = true
+editor = "cursor -g {file}:{line}"
+
+[keybindings]
+comment = ["c", "ㅊ"]
+select = ["v", "ㅍ"]

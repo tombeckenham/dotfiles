@@ -476,6 +476,12 @@ _ghsb_finish() {
     return 1
   fi
 
+  local session_forge
+  session_forge=$(_ghsb_session_get "$sid" "forge")
+  if [[ -n "$session_forge" ]]; then
+    local GHSB_FORGE="$session_forge"
+  fi
+
   echo "==> Finish session $sid"
   _ghsb_print_open_first "$repo" "$branch" "" "$worktree"
   echo ""
@@ -490,12 +496,12 @@ _ghsb_finish() {
 
   # Ensure PR
   local pr pr_url
-  pr=$(gh pr view --json number -q .number 2>/dev/null) || pr=""
+  pr=$("$(_ghsb_forge)" pr view --json number -q .number 2>/dev/null) || pr=""
   if [[ -z "$pr" ]]; then
     echo "→ Creating PR..."
     local title
-    title=$(gh issue view "$issue" -R "$repo" --json title -q .title 2>/dev/null || echo "$branch")
-    pr_url=$(gh pr create -R "$repo" \
+    title=$("$(_ghsb_forge)" issue view "$issue" -R "$repo" --json title -q .title 2>/dev/null || echo "$branch")
+    pr_url=$("$(_ghsb_forge)" pr create -R "$repo" \
       --title "$title" \
       --body "Closes #${issue}
 
@@ -503,18 +509,18 @@ Implemented via ghsb session \`${sid}\`." \
       --base "$base_branch" \
       --head "$branch" 2>&1) || {
       # Maybe PR already exists on origin under different detection
-      pr=$(gh pr list -R "$repo" --head "$branch" --json number -q '.[0].number' 2>/dev/null)
+      pr=$("$(_ghsb_forge)" pr list -R "$repo" --head "$branch" --json number -q '.[0].number' 2>/dev/null)
       if [[ -z "$pr" ]]; then
         echo "Failed to create PR: $pr_url"
         return 1
       fi
-      pr_url="https://github.com/${repo}/pull/${pr}"
+      pr_url="https://$(_ghsb_forge_host)/${repo}/pull/${pr}"
     }
     if [[ -z "$pr" ]]; then
       pr=$(echo "$pr_url" | grep -oE '[0-9]+$')
     fi
   else
-    pr_url=$(gh pr view "$pr" -R "$repo" --json url -q .url)
+    pr_url=$("$(_ghsb_forge)" pr view "$pr" -R "$repo" --json url -q .url)
   fi
   echo "  PR #$pr — $pr_url"
   # store pr as number in session (jq number)

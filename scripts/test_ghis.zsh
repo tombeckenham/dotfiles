@@ -27,6 +27,15 @@ args=$(_ghis_list_args true)
 [[ "$args" != *--assignee* ]] || fail all-drops-assignee
 [[ "$args" == *"-linked:pr sort:created-asc"* ]] || fail all-keeps-search
 
+[[ "$(_ghsb_forge)" == gh ]] || fail forge-default
+[[ "$(_ghsb_user_cmd ghi)" == ghi ]] || fail cmd-gh
+GHSB_FORGE=src
+[[ "$(_ghsb_forge)" == src ]] || fail forge-src
+[[ "$(_ghsb_forge_host)" == source.tanstack.com ]] || fail host-src
+[[ "$(_ghsb_user_cmd ghis)" == sris ]] || fail cmd-sris
+[[ "$(_ghsb_user_cmd ghiprs)" == sriprs ]] || fail cmd-sriprs
+unset GHSB_FORGE
+
 repo=$(mktemp -d)
 name=$(basename "$repo")
 git -C "$repo" init -q

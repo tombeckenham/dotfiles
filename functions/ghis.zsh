@@ -62,8 +62,8 @@ ghis() {
 
   local -a list_args=()
   list_args=("${(@f)$(_ghis_list_args "$all")}")
-  issues=$(gh issue list "${list_args[@]}" 2>&1) || {
-    echo "gh issue list failed: $issues" >&2
+  issues=$("$(_ghsb_forge)" issue list "${list_args[@]}" 2>&1) || {
+    echo "$(_ghsb_forge) issue list failed: $issues" >&2
     return 1
   }
 
@@ -170,9 +170,9 @@ ghis() {
   for row in "${start[@]}"; do
     n=${row%%	*}
     echo ""
-    echo "=== ghi --no-focus -i $n ==="
+    echo "=== $(_ghsb_user_cmd ghi) --no-focus -i $n ==="
     if ! GHSB_YES=1 ghi --no-focus -i "$n"; then
-      echo "ghi $n failed" >&2
+      echo "$(_ghsb_user_cmd ghi) $n failed" >&2
       failed=$((failed + 1))
     fi
   done

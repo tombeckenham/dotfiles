@@ -108,6 +108,7 @@ ghi() {
     --arg pane "${GHSB_CHECKOUT[herdr_pane]:-${HERDR_PANE_ID}}" \
     --arg workspace "${GHSB_CHECKOUT[herdr_workspace]:-${HERDR_WORKSPACE_ID}}" \
     --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg forge "$(_ghsb_forge)" \
     '{
       id: $id,
       issue: $issue,
@@ -129,7 +130,8 @@ ghi() {
       review_pane: "",
       review_agent: "",
       created_at: $created,
-      finished_at: null
+      finished_at: null,
+      forge: $forge
     }')
   _ghsb_write_session "$session_id" "$session_json"
 
@@ -142,7 +144,7 @@ ghi() {
   elif ! _ghsb_issue_body_ready "$issue_number" "$issue_repo"; then
     skip_agent=true
     echo "Issue #${issue_number} has an empty body; worktree is ready, agent not started."
-    echo "Fill the issue, then: ghi -i ${issue_number}"
+    echo "Fill the issue, then: $(_ghsb_user_cmd ghi) -i ${issue_number}"
   fi
   if $skip_agent; then
     if ! $no_focus; then

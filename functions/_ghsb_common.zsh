@@ -4,6 +4,35 @@ GHSB_HOME="${GHSB_HOME:-$HOME/.ghsb}"
 GHSB_SESSIONS_DIR="$GHSB_HOME/sessions"
 GHSB_ARTIFACTS_DIR="$GHSB_HOME/artifacts"
 
+# Remote CLI for issue and PR calls. ghi uses gh. sri sets GHSB_FORGE=src.
+_ghsb_forge() {
+  echo "${GHSB_FORGE:-gh}"
+}
+
+_ghsb_forge_host() {
+  if [[ "$(_ghsb_forge)" == src ]]; then
+    echo "source.tanstack.com"
+  else
+    echo "github.com"
+  fi
+}
+
+# User-facing name for a ghi-family command on the current forge.
+_ghsb_user_cmd() {
+  if [[ "$(_ghsb_forge)" != src ]]; then
+    echo "$1"
+    return
+  fi
+  case "$1" in
+    ghi) echo sri ;;
+    ghis) echo sris ;;
+    ghb) echo srb ;;
+    ghipr) echo sripr ;;
+    ghiprs) echo sriprs ;;
+    *) echo "$1" ;;
+  esac
+}
+
 _ghsb_init_dirs() {
   mkdir -p "$GHSB_SESSIONS_DIR" "$GHSB_ARTIFACTS_DIR"
 }
@@ -65,7 +94,7 @@ _ghsb_ai_flags() {
 _ghsb_review_cmd() {
   local ai_tool="$1" pr="$2" args="${3:-}"
   case "$ai_tool" in
-    opencode) echo "Review pull request ${pr}: run 'gh pr view ${pr}' and 'gh pr diff ${pr}', then report correctness, security, and test-coverage findings." ;;
+    opencode) echo "Review pull request ${pr}: run '$(_ghsb_forge) pr view ${pr}' and '$(_ghsb_forge) pr diff ${pr}', then report correctness, security, and test-coverage findings." ;;
     grok) echo "/review-pr ${pr}${args:+ $args}" ;;
     *) echo "/pr-review-toolkit:review-pr ${pr}${args:+ $args}" ;;
   esac
@@ -791,8 +820,8 @@ _ghsb_scripts_dir() {
 # Detect fork + issue repo (same heuristic as ghwt)
 _ghsb_detect_repo() {
   local fork_repo upstream_repo
-  fork_repo=$(git remote get-url origin 2>/dev/null | sed 's#.*github\.com[/:]##; s#\.git$##')
-  upstream_repo=$(gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null)
+  fork_repo=$(git remote get-url origin 2>/dev/null | sed -E 's#.*(github\.com|source\.tanstack\.com)[:/]##; s#\.git$##')
+  upstream_repo=$("$(_ghsb_forge)" repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null)
   local is_fork=false
   if [[ -n "$fork_repo" && -n "$upstream_repo" && "$fork_repo" != "$upstream_repo" ]]; then
     is_fork=true
@@ -829,7 +858,7 @@ _ghsb_checkout_issue() {
   [[ "$is_fork" == "true" ]] && echo "Detected fork of $upstream_repo; issues → $issue_repo"
 
   local default_branch
-  default_branch=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null)
+  default_branch=$("$(_ghsb_forge)" repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null)
   default_branch="${default_branch:-main}"
 
   local sync_source="origin"
@@ -837,7 +866,7 @@ _ghsb_checkout_issue() {
     if git remote get-url upstream >/dev/null 2>&1; then
       sync_source="upstream"
     else
-      sync_source="https://github.com/${upstream_repo}.git"
+      sync_source="https://$(_ghsb_forge_host)/${upstream_repo}.git"
     fi
   fi
 
@@ -870,7 +899,7 @@ _ghsb_checkout_issue() {
       fi
     fi
     local issue_url
-    issue_url=$(gh issue create -R "$issue_repo" --title "$title" --body "$body" 2>&1)
+    issue_url=$("$(_ghsb_forge)" issue create -R "$issue_repo" --title "$title" --body "$body" 2>&1)
     if [[ $? -ne 0 ]]; then
       echo "Failed to create issue: $issue_url"
       return 1
@@ -909,7 +938,7 @@ _ghsb_checkout_issue() {
         i=$((i+1))
       done
       if [[ -n "${GHSB_YES:-}" ]]; then
-        echo "ghis will not pick among ${#existing_branches[@]} branches. Run: ghi -i ${issue_number}" >&2
+        echo "$(_ghsb_user_cmd ghis) will not pick among ${#existing_branches[@]} branches. Run: $(_ghsb_user_cmd ghi) -i ${issue_number}" >&2
         return 1
       fi
       printf "Select [1-%d, or n for new]: " "${#existing_branches[@]}"
@@ -925,7 +954,7 @@ _ghsb_checkout_issue() {
   if [[ -z "$branch_name" ]]; then
     if [[ "$is_fork" == "true" ]]; then
       local issue_title slug base_ref
-      issue_title=$(gh issue view "$issue_number" -R "$issue_repo" --json title -q '.title' 2>&1) || {
+      issue_title=$("$(_ghsb_forge)" issue view "$issue_number" -R "$issue_repo" --json title -q '.title' 2>&1) || {
         echo "Failed to fetch issue title: $issue_title"
         return 1
       }
@@ -947,7 +976,7 @@ _ghsb_checkout_issue() {
       local develop_output
       local -a base_arg=()
       [[ -n "$base_branch" ]] && base_arg=(--base "$base_branch")
-      develop_output=$(gh issue develop "$issue_number" "${base_arg[@]}" 2>&1) || {
+      develop_output=$("$(_ghsb_forge)" issue develop "$issue_number" "${base_arg[@]}" 2>&1) || {
         echo "Failed to create branch: $develop_output"
         return 1
       }
@@ -1026,7 +1055,7 @@ _ghsb_checkout_branch() {
   [[ "$is_fork" == "true" ]] && echo "Detected fork of $upstream_repo"
 
   local default_branch
-  default_branch=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null)
+  default_branch=$("$(_ghsb_forge)" repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null)
   default_branch="${default_branch:-main}"
 
   local sync_source="origin"
@@ -1034,7 +1063,7 @@ _ghsb_checkout_branch() {
     if git remote get-url upstream >/dev/null 2>&1; then
       sync_source="upstream"
     else
-      sync_source="https://github.com/${upstream_repo}.git"
+      sync_source="https://$(_ghsb_forge_host)/${upstream_repo}.git"
     fi
   fi
 
@@ -1135,8 +1164,8 @@ _ghsb_pr_refresh_head() {
   fi
   echo "Refreshing PR #${pr_number} to latest head..."
   if (( $# )); then
-    (cd "$worktree" && gh pr checkout "$@") >/dev/null || \
-      echo "gh pr checkout failed; trying current refs"
+    (cd "$worktree" && "$(_ghsb_forge)" pr checkout "$@") >/dev/null || \
+      echo "$(_ghsb_forge) pr checkout failed; trying current refs"
   fi
   if [[ -n "$head_oid" ]] && git -C "$worktree" cat-file -e "${head_oid}^{commit}" 2>/dev/null; then
     git -C "$worktree" reset --hard "$head_oid" >/dev/null
@@ -1297,7 +1326,7 @@ _ghsb_checkout_pr() {
   [[ "$is_fork" == "true" ]] && repo_args=(-R "$upstream_repo")
 
   local pr_data
-  pr_data=$(gh pr view "${repo_args[@]}" "$pr_number" \
+  pr_data=$("$(_ghsb_forge)" pr view "${repo_args[@]}" "$pr_number" \
     --json headRefName,baseRefName,headRefOid,isCrossRepository,maintainerCanModify,mergeable,mergeStateStatus,createdAt,updatedAt,headRepositoryOwner,url,title 2>&1)
   if [[ $? -ne 0 ]]; then
     echo "Failed to fetch PR info: $pr_data"
@@ -1381,7 +1410,7 @@ _ghsb_checkout_pr() {
         return 1
       fi
 
-      if ! (cd "$worktree_path" && gh pr checkout "${checkout_args[@]}"); then
+      if ! (cd "$worktree_path" && "$(_ghsb_forge)" pr checkout "${checkout_args[@]}"); then
         echo "Failed to check out PR #${pr_number}"
         git worktree remove --force "$worktree_path" 2>/dev/null
         git branch -D "$local_branch" 2>/dev/null
@@ -1906,7 +1935,7 @@ _ghsb_launch_in_current_space() {
 _ghsb_issue_body_ready() {
   local n="$1" repo="$2" body
   [[ -n "$n" && -n "$repo" ]] || return 1
-  body=$(gh issue view "$n" -R "$repo" --json body -q '.body // empty' 2>/dev/null) || return 1
+  body=$("$(_ghsb_forge)" issue view "$n" -R "$repo" --json body -q '.body // empty' 2>/dev/null) || return 1
   [[ -n "${body//[$' \t\r\n']/}" ]]
 }
 
@@ -1934,11 +1963,13 @@ _ghsb_implement_prompt() {
   local want_video="${6:-false}" want_review="${7:-false}"
   local review_skill
   review_skill="$(_ghsb_review_cmd "$ai_tool" "<pr-number>")"
-  local issue_view_cmd="gh issue view ${issue_number} -R ${issue_repo}"
+  local forge issue_view_cmd
+  forge=$(_ghsb_forge)
+  issue_view_cmd="${forge} issue view ${issue_number} -R ${issue_repo}"
   local wrap step=3
   wrap="When implementation is complete:
 1. Push the branch
-2. Open a PR if one does not exist (gh pr create), linking issue #${issue_number}"
+2. Open a PR if one does not exist (${forge} pr create), linking issue #${issue_number}"
   if [[ "$want_video" == true ]]; then
     wrap+=$'\n'"${step}. Run: ghsb finish --video ${session_id}
    Records a Playwright walkthrough if UI files changed. Stay in this session."
@@ -1948,7 +1979,7 @@ _ghsb_implement_prompt() {
     wrap+=$'\n'"${step}. ${review_skill}
    Fix any issues you find. Stay in this session — do not start another agent."
   fi
-  printf '%s\n' "Implement GitHub issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or lacks context, ask me what to accomplish and any constraints, then update the issue via 'gh issue edit ${issue_number} -R ${issue_repo}' before coding.
+  printf '%s\n' "Implement issue #${issue_number}. First run ${issue_view_cmd} for details. If the issue body is empty or lacks context, ask me what to accomplish and any constraints, then update the issue via '${forge} issue edit ${issue_number} -R ${issue_repo}' before coding.
 
 Work in this worktree. Commit on branch ${branch_name} and push to origin regularly.
 
@@ -2033,10 +2064,14 @@ _ghsb_print_links() {
   echo "═══════════════════════════════════════"
   echo "  Review links"
   echo "═══════════════════════════════════════"
+  local host
+  host=$(_ghsb_forge_host)
   if [[ -n "$pr" && "$pr" != "null" ]]; then
-    echo "  PR:           https://github.com/${repo}/pull/${pr}"
-    echo "  github.dev:   https://github.dev/${repo}/pull/${pr}"
-  elif [[ -n "$branch" ]]; then
+    echo "  PR:           https://${host}/${repo}/pull/${pr}"
+    if [[ "$host" == github.com ]]; then
+      echo "  github.dev:   https://github.dev/${repo}/pull/${pr}"
+    fi
+  elif [[ -n "$branch" && "$host" == github.com ]]; then
     echo "  github.dev:   https://github.dev/${repo}/tree/${branch}"
   fi
   if [[ -n "$dev_url" ]]; then
@@ -2055,7 +2090,7 @@ _ghsb_resolve_preview_url() {
 
   # Try status checks for a vercel/preview URL
   local url
-  url=$(gh pr view "$pr" -R "$repo" --json statusCheckRollup,url \
+  url=$("$(_ghsb_forge)" pr view "$pr" -R "$repo" --json statusCheckRollup,url \
     -q '[.statusCheckRollup[]? | select(.targetUrl != null) | .targetUrl] | map(select(test("vercel|preview|pages\\.dev|workers\\.dev|netlify|cloudflare"; "i"))) | .[0] // empty' 2>/dev/null)
   if [[ -n "$url" ]]; then
     echo "$url"
@@ -2063,7 +2098,7 @@ _ghsb_resolve_preview_url() {
   fi
 
   # Comments sometimes contain preview URLs (Vercel bot)
-  url=$(gh api "repos/${repo}/issues/${pr}/comments" --jq \
+  url=$("$(_ghsb_forge)" api "repos/${repo}/issues/${pr}/comments" --jq \
     '[.[].body | capture("https://[a-zA-Z0-9._/-]+\\.(vercel\\.app|netlify\\.app|pages\\.dev)[^\\s\\)]*").string // empty] | map(select(length>0)) | .[0] // empty' 2>/dev/null)
   if [[ -n "$url" ]]; then
     echo "$url"

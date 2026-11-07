@@ -149,6 +149,19 @@ ghi issues        # same
 
 Source: `functions/ghis.zsh`. Check: `scripts/test_ghis.zsh`.
 
+### `sri` — same commands on TanStack Source
+
+`sri`, `sris`, `srb`, `sripr`, and `sriprs` are the `src` equivalents of `ghi`, `ghis`, `ghb`, `ghipr`, and `ghiprs`. Same flags and Herdr flow. Issue and pull request calls go through the `src` CLI (`source.tanstack.com`) instead of `gh`. `sri review`, `sri reviews`, `sri issues`, and `sri branch` dispatch the same way `ghi` does.
+
+```sh
+sri -i 42
+sri issues --all
+sri review 99
+srb "Add dark mode"
+```
+
+Source: `functions/sri.zsh`.
+
 ### `tri` / `tris` — Trello card + worktree from the repo root in Herdr
 
 Same Herdr checkout as `ghi` (card → branch → worktree → agent), with a Trello card instead of a GitHub issue. A pasted card URL is the branch name: `/c/SHORT/196-slug` becomes `SHORT-slug`. `tri` does not read the card. The agent in the worktree does. Before coding, that agent moves the card to the list named In Progress. It moves the card to Done only after the PR is merged.
@@ -372,7 +385,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 2. Runs `brew bundle` against `Brewfile`. Homebrew is only used where the project has no macOS installer: GnuPG and pinentry-mac.
 3. Installs the rest from each project's own installer. Curl scripts: [Starship](https://starship.rs), [fnm](https://fnm.vercel.app/install) (`--force-install`, so it does not fall back to Homebrew), [pnpm](https://get.pnpm.io/install.sh), [pyenv](https://pyenv.run), [zoxide](https://github.com/ajeetdsouza/zoxide), [Doppler](https://cli.doppler.com/install.sh), [Herdr](https://herdr.dev/install.sh). GitHub release binaries: `gh`, Git LFS, jq, lefthook, into `~/.local/bin`. Disk images: Ghostty, Cursor, and OrbStack into `/Applications`.
 4. Clones [Antidote](https://github.com/mattmc3/antidote) (zsh plugin manager) into `~/.antidote`.
-5. Symlinks `.zshrc`, `.zsh_plugins.txt`, `starship.toml`, `herdr/config.toml`, `gpg.conf`, `gpg-agent.conf` and `functions/` into `$HOME` (and `~/.config`, `~/.config/herdr`, `~/.gnupg`).
+5. Symlinks `.zshrc`, `.zsh_plugins.txt`, `starship.toml`, `herdr/config.toml`, `gpg.conf`, `gpg-agent.conf` and `functions/` into `$HOME` (and `~/.config`, `~/.config/herdr`, `~/.gnupg`). After the reviewr plugin is installed, symlinks `herdr/persiyanov.reviewr/config.toml` to the plugin config path.
 6. Authenticates `gh` with the `user` and `write:gpg_key` scopes (refreshes the token if those scopes aren't already granted).
 7. Configures git globally: LFS filters, `commit.gpgsign=true`, `tag.gpgSign=true`, and `gh auth setup-git` for HTTPS token auth.
 8. If git identity isn't set, prompts for name/email (auto-detected from existing config and the GitHub API), offers to generate an Ed25519 GPG signing key, and registers the key with GitHub via `gh gpg-key add`.
@@ -388,7 +401,8 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 - **`.zshrc`** — loads Antidote plugins, sets up the Starship prompt, initialises zoxide (`z`, `zi`), adds Bun / pnpm / fnm to `PATH`, puts pyenv shims on `PATH` at startup, and auto-sources every `*.zsh` file in `~/.zsh_functions/`. Open shells re-source that directory before the next command when a function file changes.
 - **`.zsh_plugins.txt`** — `zsh-autosuggestions`, `zsh-syntax-highlighting`, `zsh-completions`, `zsh-history-substring-search`, plus the `git`, `node`, `npm` and `macos` ohmyzsh plugin paths.
 - **`starship.toml`** — fast prompt: directory (truncated to repo root), git branch and status, command duration if it took longer than 2s. Language modules are disabled to keep prompt rendering quick.
-- **`herdr/config.toml`** — Herdr config, symlinked to `~/.config/herdr/config.toml`. Turns off onboarding, enables kitty graphics, sorts the agent panel by spaces, and binds cmd+r to toggle reviewr.
+- **`herdr/config.toml`** — Herdr config, symlinked to `~/.config/herdr/config.toml`. Turns off onboarding, enables kitty graphics, sorts the agent panel by spaces, and binds cmd+t to a new tab and cmd+r to toggle reviewr.
+- **`herdr/persiyanov.reviewr/config.toml`** — reviewr settings, symlinked to `~/.config/herdr/plugins/config/persiyanov.reviewr/config.toml`.
 - **`gpg.conf` / `gpg-agent.conf`** — `auto-key-retrieve`, `pinentry-mac`, 10-minute default cache (2-hour max).
 - **`lefthook.yml`** — pre-commit hook that greps staged files for private keys, OpenAI keys (`sk-…`), GitHub tokens (`ghp_…`) and PEM headers, and blocks the commit if any are found.
 
