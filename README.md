@@ -369,7 +369,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 ## What `bootstrap.sh` does
 
 1. Installs Xcode Command Line Tools and Homebrew if either is missing.
-2. Runs `brew bundle` against `Brewfile`. Homebrew is only used where the project has no macOS installer: GnuPG, pinentry-mac, and tmux.
+2. Runs `brew bundle` against `Brewfile`. Homebrew is only used where the project has no macOS installer: GnuPG and pinentry-mac.
 3. Installs the rest from each project's own installer. Curl scripts: [Starship](https://starship.rs), [fnm](https://fnm.vercel.app/install) (`--force-install`, so it does not fall back to Homebrew), [pnpm](https://get.pnpm.io/install.sh), [pyenv](https://pyenv.run), [zoxide](https://github.com/ajeetdsouza/zoxide), [Doppler](https://cli.doppler.com/install.sh), [Herdr](https://herdr.dev/install.sh). GitHub release binaries: `gh`, Git LFS, jq, lefthook, into `~/.local/bin`. Disk images: Ghostty, Cursor, and OrbStack into `/Applications`.
 4. Clones [Antidote](https://github.com/mattmc3/antidote) (zsh plugin manager) into `~/.antidote`.
 5. Symlinks `.zshrc`, `.zsh_plugins.txt`, `starship.toml`, `herdr/config.toml`, `gpg.conf`, `gpg-agent.conf` and `functions/` into `$HOME` (and `~/.config`, `~/.config/herdr`, `~/.gnupg`).
@@ -397,7 +397,7 @@ Prerequisites: macOS, your admin password (the script calls `sudo pmset`), and a
 ```
 .
 ├── bootstrap.sh           # Installer (run once, safe to re-run)
-├── Brewfile               # Homebrew: gnupg, pinentry-mac, tmux
+├── Brewfile               # Homebrew: gnupg, pinentry-mac
 ├── .zshrc                 # Shell config
 ├── .zsh_plugins.txt       # Antidote plugin list
 ├── starship.toml          # Prompt
@@ -473,7 +473,7 @@ grok plugin marketplace add ~/code/dotfiles
 
 ## Caveats / forking notes
 
-- macOS only — uses `xcode-select`, `pmset`, `osascript`, and `pinentry-mac` at `/opt/homebrew/bin/pinentry-mac`. `/opt/homebrew/bin` stays on `PATH` for GnuPG, pinentry-mac, and tmux.
+- macOS only — uses `xcode-select`, `pmset`, `osascript`, and `pinentry-mac` at `/opt/homebrew/bin/pinentry-mac`. `/opt/homebrew/bin` stays on `PATH` for GnuPG and pinentry-mac.
 - `bootstrap.sh` calls `sudo pmset` to keep the machine awake. Remove that block if you don't want always-on power management.
 - `ghwt`, `ghwtv`, `ghwtprv`, `ghwtb`, and `wt` assume Claude Code is installed and on `PATH` (`bootstrap.sh` installs it). New worktrees are Herdr worktrees under `~/.herdr/worktrees/{repo}/{branch-slug}` (legacy `~/.claude/worktrees/{repo}-{N}` checkouts are still opened). `ghwtv --tode` needs `tode` and `herdr` on `PATH`. `ghwtprv` needs `herdr` and the `persiyanov.reviewr` plugin (`herdr plugin install persiyanov/herdr-reviewr`).
 - If you fork this repo, prune `Brewfile` and skip the installer steps in `bootstrap.sh` you don't want (Vercel, Wrangler, OpenCode, Grok, GPG key generation, etc.).
