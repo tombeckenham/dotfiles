@@ -66,6 +66,8 @@ Do not run `ghi "Title"` — that creates an empty-body issue and would start th
 | Branch from current | `ghi -c -i 42` |
 | Named branch | `ghi -b branch-name -i 42` |
 | Review a PR instead | `ghi review 99` (same as `ghipr`) |
+| Every assigned PR | `ghi reviews` (same as `ghiprs`) |
+| Every open PR | `ghi reviews --all` |
 | Every assigned issue with no PR | `ghi issues` (same as `ghis`) |
 | Every open issue with no PR | `ghi issues --all` |
 | Branch, no issue | `ghi branch "Add dark mode"` (same as `ghb`) |

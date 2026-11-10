@@ -126,7 +126,8 @@ Source: `functions/ghipr.zsh`.
 From the repo root Herdr space. For each open PR assigned to you whose Herdr workspace is not open, runs `ghipr --no-focus` (worktree + herdr-reviewr + review agent). Starts the lowest PR numbers first, five at a time. This pane stays on the repo root.
 
 ```sh
-ghiprs            # start the 5 oldest
+ghiprs            # start the 5 oldest assigned to you
+ghiprs --all      # every open PR, not only ones assigned to you
 ghiprs --max 10   # start a larger batch
 ghiprs --dry-run  # print start/skip only
 ```
@@ -483,7 +484,7 @@ Local checkout instead of GitHub:
 grok plugin marketplace add ~/code/dotfiles
 ```
 
-`/ghiprs` starts review agents for open PRs assigned to you whose Herdr workspace is closed, lowest number first, five at a time, without leaving the current pane. `/ghis` does the same for open issues assigned to you that have no linked pull request and a non-empty body. `/ghis --all` drops the assignee filter.
+`/ghiprs` starts review agents for open PRs assigned to you whose Herdr workspace is closed, lowest number first, five at a time, without leaving the current pane. `/ghiprs --all` drops the assignee filter. `/ghis` does the same for open issues assigned to you that have no linked pull request and a non-empty body. `/ghis --all` drops the assignee filter.
 
 ## Caveats / forking notes
 

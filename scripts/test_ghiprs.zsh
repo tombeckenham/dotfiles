@@ -3,6 +3,7 @@
 export GHSB_HOME=$(mktemp -d)
 export HERDR_WORKTREES_DIR=$(mktemp -d)
 source "${0:A:h}/../functions/_ghsb_common.zsh"
+source "${0:A:h}/../functions/ghiprs.zsh"
 
 fail() { echo "FAIL $1"; exit 1 }
 
@@ -38,6 +39,12 @@ write_session "${name}-pr-3" 3 wDEAD "$wt"
 
 # No session → new
 [[ $(act 9 feat/missing "" "") == new ]] || fail no-session
+
+args=$(_ghiprs_list_args false)
+[[ "$args" == *"--assignee"$'\n'"@me"* ]] || fail assignee
+args=$(_ghiprs_list_args true)
+[[ "$args" != *--assignee* ]] || fail all-drops-assignee
+[[ "$args" == *"sort:created-asc"* ]] || fail all-keeps-search
 _ghsb_pr_session_exists 9 && fail exists-9
 
 # Git worktree for the branch, no session → reopen

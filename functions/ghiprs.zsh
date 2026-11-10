@@ -1,16 +1,21 @@
 # ghiprs — ghipr every open PR assigned to me whose Herdr workspace is closed
-# Usage: ghiprs [--dry-run] [--max N]
+# Usage: ghiprs [--dry-run] [--max N] [--all]
 #
 # From the repo root Herdr space. Skips a PR when its review workspace is
 # still open. Otherwise reopens the worktree if it is on disk, or creates
 # one, and starts a review agent. Does not focus those spaces.
+# --all lists every open PR in the repo, not only ones assigned to you.
 ghiprs() {
-  local dry_run=false max=5
+  local dry_run=false max=5 all=false
 
   while [[ "$1" == -* ]]; do
     case "$1" in
       --dry-run)
         dry_run=true
+        shift
+        ;;
+      --all)
+        all=true
         shift
         ;;
       --max)
@@ -56,18 +61,24 @@ ghiprs() {
     ') || open_wts=""
   fi
 
+  local -a list_args=()
+  list_args=("${(@f)$(_ghiprs_list_args "$all")}")
   local prs
-  prs=$("$(_ghsb_forge)" pr list --assignee @me --state open --limit 100 \
-    --search "sort:created-asc" \
-    --json number,title,url,isDraft,headRefName 2>&1) || {
+  prs=$("$(_ghsb_forge)" pr list "${list_args[@]}" 2>&1) || {
     echo "$(_ghsb_forge) pr list failed: $prs" >&2
     return 1
   }
 
+  local scope="Assigned open PRs" none="No open PRs assigned to you in this repo."
+  if $all; then
+    scope="Open PRs"
+    none="No open PRs in this repo."
+  fi
+
   local count
   count=$(printf '%s\n' "$prs" | jq 'length')
   if [[ "$count" == "0" ]]; then
-    echo "No open PRs assigned to you in this repo."
+    echo "$none"
     return 0
   fi
 
@@ -94,7 +105,7 @@ ghiprs() {
     start=("${ordered[@]}")
   fi
 
-  echo "Assigned open PRs: $count  start: ${#start[@]}  later: ${#later[@]}  skip (workspace open): ${#skip[@]}"
+  echo "$scope: $count  start: ${#start[@]}  later: ${#later[@]}  skip (workspace open): ${#skip[@]}"
   local row rest
   if (( ${#skip[@]} )); then
     echo "Skip:"
@@ -155,19 +166,35 @@ ghiprs() {
   (( failed == 0 ))
 }
 
+# gh/src pr list arguments. "true" drops --assignee @me.
+_ghiprs_list_args() {
+  local -a args=(
+    --state open
+    --limit 100
+    --search "sort:created-asc"
+    --json number,title,url,isDraft,headRefName
+  )
+  if [[ "$1" != true ]]; then
+    args=(--assignee @me "${args[@]}")
+  fi
+  printf '%s\n' "${args[@]}"
+}
+
 _ghiprs_help() {
   cat <<'EOF'
-ghiprs — review assigned open PRs whose Herdr workspace is closed
+ghiprs — review open PRs whose Herdr workspace is closed
 
-Run from the repo root Herdr space. Lists open PRs assigned to you,
-skips one whose review workspace is still open, and starts the rest
-lowest number first. The default batch is 5. Run it again for the next
-batch. Each start is ghipr --no-focus. Does not steal this pane's focus.
+Run from the repo root Herdr space. Lists open PRs assigned to you.
+--all lists every open PR in the repo. Skips one whose review workspace
+is still open, and starts the rest lowest number first. The default
+batch is 5. Run it again for the next batch. Each start is
+ghipr --no-focus. Does not steal this pane's focus.
 
-  ghiprs [--dry-run] [--max N]
+  ghiprs [--dry-run] [--max N] [--all]
 
 Flags:
   --dry-run    Print start/skip lists only
   --max N      Start at most N reviews (default 5)
+  --all        Every open PR, not only ones assigned to you
 EOF
 }
