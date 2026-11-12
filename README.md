@@ -348,7 +348,7 @@ hsplt                           # workspace for the current directory
 | `-s`, `--session NAME` | Named Herdr session (`HERDR_SESSION` / `herdr --session`). |
 | `--pr` | Treat the number as a PR (`hsplt pr 1178` is the same). |
 
-Matching (live Herdr workspaces only): `{N}-{slug}`, `{repo}-{N}`, `pr-{N}`, `{repo}-pr-{N}`, or an exact label. A bare number tries the issue first, then the PR. Pass `--remote` when the Herdr server is on another machine.
+Matching (live Herdr workspaces only): `{N}-{slug}`, `{repo}-{N}`, `pr-{N}-{branch-slug}` (or old `pr-{N}`), `{repo}-pr-{N}`, or an exact label. A bare number tries the issue first, then the PR. Pass `--remote` when the Herdr server is on another machine.
 
 Source: `functions/hsplt.zsh`.
 

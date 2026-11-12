@@ -1377,18 +1377,18 @@ _ghsb_checkout_pr() {
     if [[ -n "$ws" && "$ws" != "null" ]]; then
       _ghsb_herdr_wt_from_open_id "$ws" "$worktree_path"
     else
-      _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
+      _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}-${slug}"
     fi
   elif [[ -d "$legacy" ]]; then
     wt_existed=true
     worktree_path="$legacy"
     echo "Worktree already exists at: $worktree_path"
-    _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
+    _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}-${slug}"
   elif [[ -d "$herdr_path" ]]; then
     wt_existed=true
     worktree_path="$herdr_path"
     echo "Worktree already exists at: $worktree_path"
-    _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
+    _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}-${slug}"
   else
     echo "Checking out PR #${pr_number} (branch '${local_branch}')..."
     mkdir -p "$(dirname "$herdr_path")"
@@ -1402,7 +1402,7 @@ _ghsb_checkout_pr() {
       fi
       echo "Worktree created at: $worktree_path"
       _worktree_setup "$worktree_path"
-      _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
+      _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}-${slug}"
       wt_existed=true
     else
       if ! git worktree add --detach "$worktree_path" >/dev/null; then
@@ -1427,7 +1427,7 @@ _ghsb_checkout_pr() {
 
       echo "Worktree created at: $worktree_path"
       _worktree_setup "$worktree_path"
-      _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}"
+      _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}-${slug}"
     fi
   fi
   _ghsb_herdr_wt_apply_checkout
@@ -1575,7 +1575,7 @@ _ghsb_issue_space_label() {
   if [[ -n "${GHSB_CHECKOUT[issue]:-}" && -n "${GHSB_CHECKOUT[branch]:-}" ]]; then
     _ghsb_herdr_issue_label "${GHSB_CHECKOUT[issue]}" "${GHSB_CHECKOUT[branch]}"
   elif [[ -n "${GHSB_CHECKOUT[pr]:-}" ]]; then
-    printf 'pr-%s\n' "${GHSB_CHECKOUT[pr]}"
+    printf 'pr-%s-%s\n' "${GHSB_CHECKOUT[pr]}" "$(_ghsb_herdr_branch_slug "${GHSB_CHECKOUT[branch]:-}")"
   elif [[ -n "${GHSB_CHECKOUT[branch]:-}" ]]; then
     _ghsb_herdr_branch_slug "${GHSB_CHECKOUT[branch]}"
   else

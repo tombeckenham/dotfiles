@@ -442,7 +442,7 @@ _hsplt_pick() {
           elif ($p | test("(^|/)" + $n + "$")) then 65
           else 0 end;
       def score_pr:
-        if .label == ("pr-" + $n) then 100
+        if .label == ("pr-" + $n) or (.label | test("^pr-" + $n + "-")) then 100
         elif $repo != "" and .label == ($repo + "-pr-" + $n) then 100
         elif .label | test("-pr-" + $n + "$") then 90
         else 0 end;
