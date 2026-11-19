@@ -820,7 +820,7 @@ _ghsb_scripts_dir() {
 # Detect fork + issue repo (same heuristic as ghwt)
 _ghsb_detect_repo() {
   local fork_repo upstream_repo
-  fork_repo=$(git remote get-url origin 2>/dev/null | sed -E 's#.*(github\.com|source\.tanstack\.com)[:/]##; s#\.git$##')
+  fork_repo=$(git remote get-url origin 2>/dev/null | sed -E 's#.*(github\.com|source\.tanstack\.com)[:/]@?##; s#\.git$##')
   upstream_repo=$("$(_ghsb_forge)" repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null)
   local is_fork=false
   if [[ -n "$fork_repo" && -n "$upstream_repo" && "$fork_repo" != "$upstream_repo" ]]; then
@@ -1325,9 +1325,14 @@ _ghsb_checkout_pr() {
   local -a repo_args=()
   [[ "$is_fork" == "true" ]] && repo_args=(-R "$upstream_repo")
 
+  # src has no maintainerCanModify/mergeStateStatus/updatedAt; they read as
+  # "null" below, which every consumer already treats as unknown.
+  local pr_fields=headRefName,baseRefName,headRefOid,isCrossRepository,mergeable,createdAt,headRepositoryOwner,url,title
+  [[ "$(_ghsb_forge)" == src ]] || pr_fields+=,maintainerCanModify,mergeStateStatus,updatedAt
+
   local pr_data
   pr_data=$("$(_ghsb_forge)" pr view "${repo_args[@]}" "$pr_number" \
-    --json headRefName,baseRefName,headRefOid,isCrossRepository,maintainerCanModify,mergeable,mergeStateStatus,createdAt,updatedAt,headRepositoryOwner,url,title 2>&1)
+    --json "$pr_fields" 2>&1)
   if [[ $? -ne 0 ]]; then
     echo "Failed to fetch PR info: $pr_data"
     return 1
@@ -1824,7 +1829,7 @@ _ghsb_pr_review_action() {
   [[ -n "$git_wt" && -d "$git_wt" ]] && have_dir=true
   slug=$(_ghsb_herdr_branch_slug "$branch")
   herdr_path="$(_ghsb_herdr_worktrees_root)/$(basename "$repo_root")/$slug"
-  [[ -d "$herdr_path" ]] && have_dir=true
+  [[ -n "$branch" && -d "$herdr_path" ]] && have_dir=true
   [[ -d "$HOME/.claude/worktrees/$(basename "$repo_root")-${pr}" ]] && have_dir=true
 
   if $have_dir; then

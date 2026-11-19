@@ -67,6 +67,17 @@ ghis() {
     return 1
   }
 
+  # src issue list has no body or linked pull requests, so read them per
+  # issue, 8 at a time.
+  if [[ "$(_ghsb_forge)" == src ]]; then
+    local details
+    details=$(printf '%s\n' "$issues" | jq -r '.[].number' \
+      | xargs -P 8 -I{} src issue view {} --json number,body,closedByPullRequestsReferences 2>/dev/null \
+      | jq -s 'map({(.number|tostring): .}) | add // {}')
+    issues=$(printf '%s\n' "$issues" | jq --argjson d "${details:-{\}}" \
+      'map(. + ($d[.number|tostring] // {}))')
+  fi
+
   local -a rows=()
   local row
   while IFS= read -r row; do
@@ -185,12 +196,13 @@ ghis() {
 
 # gh issue list arguments. "true" drops --assignee @me.
 _ghis_list_args() {
-  local -a args=(
-    --state open
-    --limit 100
-    --search "-linked:pr sort:created-asc"
-    --json number,title,url,body,closedByPullRequestsReferences
-  )
+  local -a args=(--state open --limit 100)
+  if [[ "$(_ghsb_forge)" == src ]]; then
+    # src returns nothing for a search qualifier and lists fewer fields.
+    args+=(--json number,title,url)
+  else
+    args+=(--search "-linked:pr sort:created-asc" --json number,title,url,body,closedByPullRequestsReferences)
+  fi
   if [[ "$1" != true ]]; then
     args=(--assignee @me "${args[@]}")
   fi

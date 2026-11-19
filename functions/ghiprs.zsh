@@ -69,6 +69,16 @@ ghiprs() {
     return 1
   }
 
+  # src pr list has no headRefName, so read it per PR, 8 at a time.
+  if [[ "$(_ghsb_forge)" == src ]]; then
+    local refs
+    refs=$(printf '%s\n' "$prs" | jq -r '.[].number' \
+      | xargs -P 8 -I{} src pr view {} --json number,headRefName 2>/dev/null \
+      | jq -s 'map({(.number|tostring): .headRefName}) | add // {}')
+    prs=$(printf '%s\n' "$prs" | jq --argjson refs "${refs:-{\}}" \
+      'map(.headRefName = ($refs[.number|tostring] // ""))')
+  fi
+
   local scope="Assigned open PRs" none="No open PRs assigned to you in this repo."
   if $all; then
     scope="Open PRs"
@@ -168,12 +178,13 @@ ghiprs() {
 
 # gh/src pr list arguments. "true" drops --assignee @me.
 _ghiprs_list_args() {
-  local -a args=(
-    --state open
-    --limit 100
-    --search "sort:created-asc"
-    --json number,title,url,isDraft,headRefName
-  )
+  local -a args=(--state open --limit 100)
+  if [[ "$(_ghsb_forge)" == src ]]; then
+    # src returns nothing for a sort: search and has no headRefName here.
+    args+=(--json number,title,url,isDraft)
+  else
+    args+=(--search "sort:created-asc" --json number,title,url,isDraft,headRefName)
+  fi
   if [[ "$1" != true ]]; then
     args=(--assignee @me "${args[@]}")
   fi
