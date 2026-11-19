@@ -65,3 +65,13 @@ fpath=(~/.grok/completions/zsh $fpath)
 autoload -Uz compinit && compinit -C
 # <<< grok installer <<<
 
+
+# herdr --remote uses the client's keys by default and drops [[keys.command]]
+# bindings (cmd+r reviewr). Use the server's keys, which carry them.
+herdr() {
+  if (( ${@[(I)--remote]} && ! ${@[(I)--remote-keybindings]} )); then
+    command herdr --remote-keybindings server "$@"
+  else
+    command herdr "$@"
+  fi
+}
