@@ -919,7 +919,7 @@ _ghsb_checkout_issue() {
 
     if [[ ${#existing_branches[@]} -eq 1 ]]; then
       local reply=""
-      if [[ -n "${GHSB_YES:-}" ]]; then
+      if [[ -n "${GHSB_YES:-}" || ! -t 0 ]]; then
         reply="Y"
         echo "Using existing branch: ${existing_branches[1]}"
       else
@@ -937,8 +937,8 @@ _ghsb_checkout_issue() {
         echo "  [$i] $b"
         i=$((i+1))
       done
-      if [[ -n "${GHSB_YES:-}" ]]; then
-        echo "$(_ghsb_user_cmd ghis) will not pick among ${#existing_branches[@]} branches. Run: $(_ghsb_user_cmd ghi) -i ${issue_number}" >&2
+      if [[ -n "${GHSB_YES:-}" || ! -t 0 ]]; then
+        echo "Not picking among ${#existing_branches[@]} branches without a terminal. Pass -b <branch>, or run $(_ghsb_user_cmd ghi) -i ${issue_number} interactively." >&2
         return 1
       fi
       printf "Select [1-%d, or n for new]: " "${#existing_branches[@]}"

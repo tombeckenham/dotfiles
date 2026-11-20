@@ -245,7 +245,7 @@ ghwt() {
     if [[ ${#existing_branches[@]} -eq 1 ]]; then
       printf "Found existing branch for issue: %s\nUse it? [Y/n] " "${existing_branches[1]}"
       local reply
-      read -r reply
+      [[ -t 0 ]] && read -r reply
       if [[ -z "$reply" || "$reply" == [Yy]* ]]; then
         chosen="${existing_branches[1]}"
       else
@@ -260,7 +260,7 @@ ghwt() {
       done
       printf "Select branch [1-%d, or n to create new]: " "${#existing_branches[@]}"
       local reply
-      read -r reply
+      [[ -t 0 ]] && read -r reply
       if [[ "$reply" == <-> ]] && (( reply >= 1 && reply <= ${#existing_branches[@]} )); then
         chosen="${existing_branches[$reply]}"
       else
