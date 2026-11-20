@@ -96,6 +96,8 @@ ghiprs() {
   local n title url draft branch action note
   while IFS=$'\t' read -r n title url draft branch; do
     [[ -n "$n" ]] || continue
+    # Same name _ghsb_checkout_pr stores, so an open pr-<n> worktree is a skip.
+    branch=$(_ghsb_pr_local_branch "$n" "$branch")
     action=$(_ghsb_pr_review_action "$n" "$branch" "$live_ids" "$open_wts")
     if [[ "$action" == skip ]]; then
       skip+=("$n	$title	$url")
