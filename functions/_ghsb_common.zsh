@@ -1301,6 +1301,42 @@ ${update_block}
 If this PR is still stale or conflicting after the local update, say so and whether the changes still apply."
 }
 
+# Local branch name for a PR.
+# src reports headRefName as refs/pull/<n>/head when the GitHub branch is not
+# on Source. That string is a ref, not a branch. Use pr-<n> for the branch,
+# the worktree slug, and skip/reopen lookups. gh keeps headRefName.
+# Usage: _ghsb_pr_local_branch <pr-number> <headRefName>
+_ghsb_pr_local_branch() {
+  local pr="$1" head_ref="$2"
+  if [[ "$(_ghsb_forge)" == src && "$head_ref" == refs/pull/* ]]; then
+    printf 'pr-%s\n' "$pr"
+    return 0
+  fi
+  printf '%s\n' "$head_ref"
+}
+
+# Fetch refs/pull/<n>/head and create local branch pr-<n> at that commit when
+# it does not exist yet. Prints the fetched commit. Does not move a branch
+# that already exists (the worktree refresh does that).
+# Usage: _ghsb_ensure_src_pull_branch <repo> <pr-number> <pull-ref>
+_ghsb_ensure_src_pull_branch() {
+  local repo="$1" pr="$2" pull_ref="$3"
+  local remote=origin name
+  git -C "$repo" remote get-url upstream >/dev/null 2>&1 && remote=upstream
+  if ! git -C "$repo" fetch "$remote" "$pull_ref"; then
+    echo "Failed to fetch ${pull_ref} from ${remote}" >&2
+    return 1
+  fi
+  name=$(_ghsb_pr_local_branch "$pr" "$pull_ref")
+  if ! git -C "$repo" show-ref --verify --quiet "refs/heads/${name}"; then
+    if ! git -C "$repo" branch "$name" FETCH_HEAD; then
+      echo "Failed to create branch '${name}' from ${pull_ref}" >&2
+      return 1
+    fi
+  fi
+  git -C "$repo" rev-parse FETCH_HEAD
+}
+
 # PR → worktree (gh pr checkout) → refresh HEAD → merge/rebase base if
 # behind or conflicting → freshness. Writes results to GHSB_CHECKOUT.
 # Shared by ghsbpr and ghipr.
@@ -1352,7 +1388,11 @@ _ghsb_checkout_pr() {
   pr_url=$(echo "$pr_data" | jq -r '.url')
   pr_title=$(echo "$pr_data" | jq -r '.title')
 
-  local local_branch="$head_ref"
+  local local_branch pull_ref=""
+  local_branch=$(_ghsb_pr_local_branch "$pr_number" "$head_ref")
+  if [[ "$local_branch" != "$head_ref" ]]; then
+    pull_ref="$head_ref"
+  fi
   if [[ "$is_cross" == "true" ]]; then
     echo "PR #${pr_number} is from fork ${fork_owner} (cross-repo)"
   fi
@@ -1368,11 +1408,19 @@ _ghsb_checkout_pr() {
   local slug found rest ws herdr_path legacy wt_existed=false
   local -a checkout_args=("$pr_number")
   [[ "$is_fork" == "true" ]] && checkout_args+=(-R "$upstream_repo")
-  slug=$(_ghsb_herdr_branch_slug "$head_ref")
+  if [[ -n "$pull_ref" ]]; then
+    # src pr checkout fetches refs/heads/<headRefName>. That ref does not
+    # exist for refs/pull/<n>/head, so fetch the pull ref and use pr-<n>.
+    local fetched_oid
+    fetched_oid=$(_ghsb_ensure_src_pull_branch "$repo_root" "$pr_number" "$pull_ref") || return 1
+    [[ -n "$fetched_oid" ]] && head_oid="$fetched_oid"
+    checkout_args=()
+  fi
+  slug=$(_ghsb_herdr_branch_slug "$local_branch")
   herdr_path="$(_ghsb_herdr_worktrees_root)/${repo_name}/${slug}"
   legacy="$HOME/.claude/worktrees/${repo_name}-${pr_number}"
   GHSB_HERDR_WT=()
-  found=$(_ghsb_herdr_wt_find_branch "$repo_root" "$head_ref") || found=""
+  found=$(_ghsb_herdr_wt_find_branch "$repo_root" "$local_branch") || found=""
   if [[ -n "$found" ]]; then
     wt_existed=true
     worktree_path=${found%%$'\t'*}
@@ -1395,7 +1443,11 @@ _ghsb_checkout_pr() {
     echo "Worktree already exists at: $worktree_path"
     _ghsb_herdr_wt_register_path "$repo_root" "$worktree_path" "pr-${pr_number}-${slug}"
   else
-    echo "Checking out PR #${pr_number} (branch '${local_branch}')..."
+    if [[ -n "$pull_ref" ]]; then
+      echo "Checking out PR #${pr_number} from ${pull_ref} as '${local_branch}'..."
+    else
+      echo "Checking out PR #${pr_number} (branch '${local_branch}')..."
+    fi
     mkdir -p "$(dirname "$herdr_path")"
     worktree_path="$herdr_path"
     # gh pr checkout refuses when the local branch already exists, so attach
@@ -1450,7 +1502,7 @@ _ghsb_checkout_pr() {
   echo "PR is ${behind} commit(s) behind ${base_ref}, ${ahead} ahead (mergeable: ${mergeable})"
 
   GHSB_CHECKOUT[pr]="$pr_number"
-  GHSB_CHECKOUT[branch]="$head_ref"
+  GHSB_CHECKOUT[branch]="$local_branch"
   GHSB_CHECKOUT[base]="$base_ref"
   GHSB_CHECKOUT[worktree]="$worktree_path"
   GHSB_CHECKOUT[session_id]="$session_id"

@@ -152,7 +152,7 @@ Source: `functions/ghis.zsh`. Check: `scripts/test_ghis.zsh`.
 
 ### `sri` — same commands on TanStack Source
 
-`sri`, `sris`, `srb`, `sripr`, and `sriprs` are the `src` equivalents of `ghi`, `ghis`, `ghb`, `ghipr`, and `ghiprs`. Same flags and Herdr flow. Issue and pull request calls go through the `src` CLI (`source.tanstack.com`) instead of `gh`. `sri review`, `sri reviews`, `sri issues`, and `sri branch` dispatch the same way `ghi` does.
+`sri`, `sris`, `srb`, `sripr`, and `sriprs` are the `src` equivalents of `ghi`, `ghis`, `ghb`, `ghipr`, and `ghiprs`. Same flags and Herdr flow. Issue and pull request calls go through the `src` CLI (`source.tanstack.com`) instead of `gh`. `sri review`, `sri reviews`, `sri issues`, and `sri branch` dispatch the same way `ghi` does. When Source reports a head of `refs/pull/<n>/head`, `sripr` checks that ref out as the local branch `pr-<n>`. A real branch name is unchanged, and `ghipr` on GitHub keeps `headRefName`.
 
 ```sh
 sri -i 42
