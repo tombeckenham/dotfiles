@@ -1,7 +1,7 @@
 ---
 name: ghb
-description: Start branch work in Herdr without filing a GitHub issue. Use when the user wants a branch-only worktree, run /ghb or /ghib or /ghi branch, or says "just a branch", "no issue", "ghb", "ghib", "start a branch for X".
-compatibility: Requires Herdr pane (HERDR_PANE_ID), gh, git, and ~/.zsh_functions from tombeckenham/dotfiles.
+description: Start branch work in Herdr without filing a GitHub issue (srb on TanStack Source). Use when the user wants a branch-only worktree, run /ghb or /ghib or /ghi branch, or says "just a branch", "no issue", "ghb", "ghib", "start a branch for X".
+compatibility: Requires Herdr pane (HERDR_PANE_ID), gh (src on TanStack Source), git, and ~/.zsh_functions from tombeckenham/dotfiles.
 ---
 
 # ghb
@@ -29,3 +29,7 @@ If `HERDR_PANE_ID` is unset, stop and tell the user to run this from a Herdr pan
 | Worktree only | `ghb --no-agent "description"` |
 
 There is no issue-body wait (there is no issue). After it runs, print stdout. Do not `cd` this pane; `ghb` focuses the worktree space itself.
+
+## TanStack Source
+
+When `src repo view --json nameWithOwner` prints the repo, it is on TanStack Source, not GitHub. Run `srb` in place of `ghb`, with the same flags: `zsh "$RUN" srb [flags] <branch-name-or-description>`. The agent then opens its pull request with `src`, not `gh`.

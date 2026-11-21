@@ -1,7 +1,7 @@
 ---
 name: ghis
-description: Start an implement agent for open GitHub issues assigned to the user that have no linked pull request and whose Herdr workspace is not already open. Starts the lowest issue numbers first, five by default. Pass --all to include issues not assigned to the user. Use when the user runs /ghis, or says "start all my issues", "issues without PRs", "ghi everything assigned to me", "ghis --all".
-compatibility: Requires Herdr pane (HERDR_PANE_ID), gh, git, and ~/.zsh_functions from tombeckenham/dotfiles.
+description: Start an implement agent for open GitHub issues (or TanStack Source issues, with sris) assigned to the user that have no linked pull request and whose Herdr workspace is not already open. Starts the lowest issue numbers first, five by default. Pass --all to include issues not assigned to the user. Use when the user runs /ghis, or says "start all my issues", "issues without PRs", "ghi everything assigned to me", "ghis --all".
+compatibility: Requires Herdr pane (HERDR_PANE_ID), gh (src on TanStack Source), git, and ~/.zsh_functions from tombeckenham/dotfiles.
 ---
 
 # ghis
@@ -26,3 +26,7 @@ Do not write your own `gh issue list` + loop of `ghi`. `ghis` skips issues linke
 ## After it runs
 
 Print stdout. Name how many started vs skipped vs failed. Do not focus each issue space.
+
+## TanStack Source
+
+When `src repo view --json nameWithOwner` prints the repo, it is on TanStack Source, not GitHub. Run `sris` in place of `ghis`, with the same flags: `zsh "$RUN" sris [--dry-run] [--max N] [--all]`. It lists issues with `src` and starts each one with `sri`.

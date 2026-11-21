@@ -1,7 +1,7 @@
 ---
 name: ghi
-description: Start GitHub issue work in Herdr (create or reuse issue, branch, worktree, agent). Use when the user wants to start an issue, run /ghi, or says "ghi this", "work on issue N", "create an issue and start an agent".
-compatibility: Requires Herdr pane (HERDR_PANE_ID), gh, git, and ~/.zsh_functions from tombeckenham/dotfiles.
+description: Start GitHub issue work in Herdr, or TanStack Source issue work with sri (create or reuse issue, branch, worktree, agent). Use when the user wants to start an issue, run /ghi, or says "ghi this", "work on issue N", "create an issue and start an agent".
+compatibility: Requires Herdr pane (HERDR_PANE_ID), gh (src on TanStack Source), git, and ~/.zsh_functions from tombeckenham/dotfiles.
 ---
 
 # ghi
@@ -77,3 +77,7 @@ Default wrap-up is push + PR. Add `--video` / `--review-fix` only if the user as
 ## After it runs
 
 Print the command's stdout (worktree + session). Do not `cd` the current pane; `ghi` focuses the worktree space itself.
+
+## TanStack Source
+
+When `src repo view --json nameWithOwner` prints the repo, it is on TanStack Source, not GitHub. Run `sri` wherever this skill says `ghi`, and `src` wherever it says `gh`. Flags and subcommands are the same: `zsh "$RUN" sri -i N`, `src issue create`, `src issue view N`, `sri review 99`, `sri issues`, `sri branch "…"`.

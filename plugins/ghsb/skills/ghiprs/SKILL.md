@@ -1,7 +1,7 @@
 ---
 name: ghiprs
-description: Review open GitHub PRs assigned to the user whose Herdr workspace is not already open. Starts the lowest PR numbers first, five by default. Pass --all to include PRs not assigned to the user. Reopens the worktree if it is on disk, otherwise creates one, and starts a separate review agent per PR without leaving this pane. Use when the user runs /ghiprs, or says "review all my PRs", "ghipr everything assigned to me", "start reviews for assigned PRs", "parallel PR review", "ghiprs --all".
-compatibility: Requires Herdr pane (HERDR_PANE_ID), gh, git, and ~/.zsh_functions from tombeckenham/dotfiles.
+description: Review open GitHub PRs (or TanStack Source PRs, with sriprs) assigned to the user whose Herdr workspace is not already open. Starts the lowest PR numbers first, five by default. Pass --all to include PRs not assigned to the user. Reopens the worktree if it is on disk, otherwise creates one, and starts a separate review agent per PR without leaving this pane. Use when the user runs /ghiprs, or says "review all my PRs", "ghipr everything assigned to me", "start reviews for assigned PRs", "parallel PR review", "ghiprs --all".
+compatibility: Requires Herdr pane (HERDR_PANE_ID), gh (src on TanStack Source), git, and ~/.zsh_functions from tombeckenham/dotfiles.
 ---
 
 # ghiprs
@@ -33,3 +33,7 @@ Do not write your own `gh pr list` + loop of `ghipr`. `ghiprs` skips a PR only w
 ## After it runs
 
 Print stdout. Name how many started vs skipped vs failed. Do not focus each review space.
+
+## TanStack Source
+
+When `src repo view --json nameWithOwner` prints the repo, it is on TanStack Source, not GitHub. Run `sriprs` in place of `ghiprs`, with the same flags: `zsh "$RUN" sriprs [--dry-run] [--max N] [--all]`. It lists pull requests with `src` and starts each one with `sripr`.

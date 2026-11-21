@@ -1,7 +1,7 @@
 ---
 name: ghipr
-description: Review one GitHub PR in Herdr (worktree, herdr-reviewr, review agent). Use when the user wants to review a PR, run /ghipr, or says "ghipr 123", "review PR N", "ghi review".
-compatibility: Requires Herdr pane (HERDR_PANE_ID), gh, git, and ~/.zsh_functions from tombeckenham/dotfiles.
+description: Review one GitHub PR in Herdr, or one TanStack Source PR with sripr (worktree, herdr-reviewr, review agent). Use when the user wants to review a PR, run /ghipr, or says "ghipr 123", "review PR N", "ghi review".
+compatibility: Requires Herdr pane (HERDR_PANE_ID), gh (src on TanStack Source), git, and ~/.zsh_functions from tombeckenham/dotfiles.
 ---
 
 # ghipr
@@ -32,3 +32,7 @@ Checkout updates the worktree from the PR's base (merge, then rebase) when the P
 ## After it runs
 
 Print stdout. Do not start a second review agent in this pane. Several PRs → `ghiprs`, not a loop of `ghipr` (that would steal focus).
+
+## TanStack Source
+
+When `src repo view --json nameWithOwner` prints the repo, it is on TanStack Source, not GitHub. Run `sripr` in place of `ghipr`, with the same flags: `zsh "$RUN" sripr [flags] <pr-number>`. Use `src pr list` to find the number, and `sriprs` for several PRs.
